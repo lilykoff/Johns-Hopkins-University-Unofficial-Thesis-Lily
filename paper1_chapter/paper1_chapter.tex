@@ -1,0 +1,519 @@
+\chapter{Paper 1: Walking fingerprinting}
+\label{chap:paper1}
+
+
+\abstract{We consider the problem of predicting an individual's identity from accelerometry data collected during walking. In a previous paper we introduced an approach that transforms the accelerometry time series into an image by constructing the joint distribution of the acceleration and lagged acceleration for a vector of lags. Predictors derived by partitioning this image into grid cells were used in logistic regression to predict individuals. Here we: (1) implement machine learning methods for prediction using the grid cell-derived predictors; (2) derive inferential methods to screen for the most predictive grid cells while adjusting for correlation and multiple comparisons; and (3) develop a novel multivariate functional regression model that avoids partitioning the predictor space. Prediction methods are compared on two open source data sets: (1) accelerometry data collected from $32$ individuals walking on a $1.06$ kilometer path; and (2) accelerometry data collected from six repetitions of walking on a $20$ meter path on two separate occasions at least one week apart for $153$ study participants. In the $32$-individual study, all methods achieve at least $95$\% rank-1 accuracy, while in the $153$-individual study, accuracy varies from $41$\% to $98$\%, depending on the method and prediction task. Methods provide insights into why some individuals are easier to predict than others. }
+\section{Introduction}
+\label{sec:intro}
+
+
+The study of human gait has long been an area of interest for research. Since perhaps the first published study on gait - Aristotle's ``On The Gait of Animals" \cite{connor_biometric_2018} - major strides have been made in collection and analysis of gait data. Various theories have been proposed to explain the  process of human walking, from game-theory based mathematical models \cite{iosa_golden_2017} to dynamic kinematic principles \cite{kuo_dynamic_2010}. Recent technological advances have facilitated the collection of massive amounts of walking data from devices including video cameras, force plates, accelerometers, and gyroscopes. 
+
+A single step is a complex coordinated movement. An individual's gait is a function of stride length, step cadence, joint angles, foot shape, and center of mass, all of which are influenced by height, weight, body composition, and fitness. Gait can vary with time of day, fatigue, emotional state, aging and disease processes. Nonetheless, gait has been shown to be similar enough within individuals, different enough between individuals, and hard enough to permanently change or mimic \cite{gafurov_spoof_2007} that it can be used for identification \cite{connor_biometric_2018}.
+
+
+Gait-based identification, if achieved with high accuracy, has many promising applications in the fields of biometrics, medicine, and epidemiology. Like fingerprints, retinal scans, or face recognition, gait may be used for identity confirmation. It may even be preferable to other methods because re-authentication can be performed continually and its use may alleviate  privacy concerns associated with the storage of fingerprints or photos \cite{vildjiounaite_unobtrusive_2006}. Health status and age may be associated with gait patterns or changes in gait \cite{cohen_gait_2019, samson_differences_2001}; as such, in clinical and epidemiological settings, characterizing gait at a specific point in time and quantifying deviations from this baseline may provide a mechanism to measure disease progression or recovery from an adverse health event such as stroke. Changes in gait have also been shown to predict increased fall risk \cite{maki_gait_1997} or undetected disease \cite{hausdorff_gait_2009}; for example, gait changes occur in individuals with Parkinson's disease before pain or other symptoms \cite{Mirelman2019}. Finally, gait-based identification could be used with wearable device-based endpoints in clinical trials to confirm identity of participants.
+
+ 
+While methods for gait-based identification, especially using video, have been well-documented \cite{Chellappa2009} and the potential benefits of gait-based identification are numerous, it is a difficult task. Methods for gait-based identification are sensitive to an individual changing clothes, shoes, or walking surface \cite{sarkar_humanid_2005}. Collection of high quality walking data is challenging, few open-source data sets exist, and walking in a controlled setting may differ from walking in the real world. As a result, gait has not been widely implemented as a biometric signature, and methods for gait-based identification are not frequently used in epidemiological research or clinical practice. 
+
+
+ 
+In this paper, we focus on gait-based identification from high resolution accelerometry data. Compared to video and underfoot-force data, the use of accelerometery in gait recognition and quantification is relatively new.  However, in recent years, the use of accelerometers in physical activity research has proliferated \cite{karas_accelerometry_2019}. This is likely due to the wide social acceptance and ubiquity of wearable devices, substantial improvements in battery life and technology, and the convenience of continuous use of these devices during daily living activities. Therefore, collecting accelerometry data during walking is feasible, unintrusive, and provides information during a wide range of physical activities that are part of an individual's life.  Increasingly, acceleration during walking is viewed as a technology with extraordinary potential for gait-based identification and quantification \cite{gafurov_biometric_2006}. 
+
+
+Existing methods for gait-based identification from accelerometry data can be divided into those that rely on step cycle detection or stride segmentation and those that are step cycle independent. Typically, methods that rely on step cycle detection segment the accelerometry pattern into steps, average over many steps to create a subject-specific template, and then predict unidentified data by matching to these templates based on cross-correlation or other distance metrics. An early implementation of this approach achieved $7$\% equal error rate (EER) in a study of $36$ individuals \cite{mantyjarvi_identifying_2005}. Subsequent approaches used variations of cycle matching, including implementing dynamic time warping to normalize step length \cite{rong_wearable_2007} or match cycles \cite{derawi_unobtrusive_2010},  matching with Euclidian distance instead of cross-correlation \cite{gafurov_improved_2010}, and matching on the principal components of the step cycle \cite{bours_eigensteps_2010}; other summaries of the step cycle including Fourier coefficients and histogram features have also been considered \cite{mantyjarvi_identifying_2005, gafurov_biometric_2006}. While methods based on step cycle detection have achieved low error rates, cycle detection can be error prone, computationally intensive, and sensitive to movements of the device, especially on the wrist. Nonetheless, the majority of existing methods for identification from accelerometry data rely on step cycle detection. Notable exceptions include the signature points approach  \cite{zhang_accelerometer-based_2015}, the hidden Markov model approach \cite{nickel_using_2011}, and our own walking fingerprinting \cite{koffman_fingerprinting_2023}. Few of these existing methods are applied in open-source data sets or provide validated software for implementation.
+
+Previously, we have proposed a walking fingerprinting approach \cite{koffman_fingerprinting_2023} using the transformation of the accelerometry time series into an image by considering the joint distribution of acceleration and lagged acceleration for a series of lags. This distribution was partitioned into grid cells, predictors were derived by summing over cells, and a logistic model on these cells was used to predict individuals. Here we: (1) expand the grid cell-based approach to include machine learning methods, (2) derive inferential methods to screen for the most predictive grid cells while adjusting for correlation and multiplicity, and (3) develop a novel multivariate functional regression model that avoids partitioning of the predictor space into cells. Methods are compared on two open source data sets that comprise different populations and data collection settings. The first data set contains $32$ individuals with long walking periods and was used in our original paper \cite{koffman_fingerprinting_2023}. The second data set contains $153$ individuals with shorter walking periods collected in two separate sessions, sometimes weeks apart. 
+
+The paper is organized as follows: "Data Description" describes how the data were collected and demonstrates examples of the data structure. "Methods for Subject Identification" describes methods for identity prediction and inference. "Results/Applications" describes the results of the applications of the methods in the two separate data sets. Discussion and future directions are covered last.
+
+\section{Data Description}\label{sec:data_description}
+
+
+Wearable accelerometers contain a micro-electromechanical system that records acceleration along three orthogonal axes in the frame of reference of the device. The frequency of most wearable accelerometers ranges from $10$ to $200$ hertz (Hz) ($10$ to $200$ observations per second). Thus, the raw accelerometry data obtained from these wearable devices consists of three simultaneous time series with between $10$ and $200$ observations per second \cite{karas_accelerometry_2019}. In practice, the sum of squared acceleration in each dimension is often used to minimize the effect of small movements of the device around the wrist.  Figure \ref{fig:problem_description} displays the sum of squared acceleration in eight walking intervals from several individuals. Each panel corresponds to a three second interval and the left panels show that data were obtained from four different individuals (labeled $14$, $43$, $50$, and $118$, respectively). The right panels do not show the identity of the individuals and the questions are: (1) among the individuals shown in the right panels, is there any individual whose data are shown in the left panels? and (2) if yes, then which ones? Now, imagine the same problem but with thousands or million of individuals and with varying lengths of walking intervals.  Here we try to address such problems, but using computers, accurately, and fast. The answer for this riddle is at the end of the discussion and in the acknowledgements.
+
+ \begin{figure}[!ht]
+    \centering
+    \includegraphics[width = 0.75\textwidth]{paper1_chapter/figure/figure1.png}
+    \caption{Eight three-second intervals shown from different study participants. Data are a single time series obtained as the sum of squares of observed accelerations along the three axes. The left panels provide the information about the identity of study participants, whereas the right panels do not. The questions are: (1) among the individuals shown in the right plots, is there any individual whose data are displayed in the left panels? and (2) if yes, then which ones? The answer to the riddle is provided at the end of the discussion and in the acknowledgements.}
+    \label{fig:problem_description}
+\end{figure}
+
+\subsection{Indiana University (IU) Biostatistics dataset}\label{subsec:IUB}
+As part of a study to explore the accelerometry patterns associated with various activities, $32$ participants ($13$ male, $23$ to $54$ years old) wore four ActiGraph GT3X+ accelerometers on the left hip, left wrist, and both ankles, respectively, while walking, driving, and climbing and descending stairs. The study was conducted at the Department of Biostatistics Fairbanks School of Public Health at Indiana University and all subjects provided written informed consent. The data were collected at $100$ Hz and extracted using ActiLife software version 6.12.0. For our purposes, only data from the left wrist collected during the walking part of the study is used. Thirty-one subjects identified as right-handed and one identified as ambidextrous; as such, the left-wrist was effectively the non-dominant wrist for all individuals. 
+The walking portion of the study consisted  of walking up to $1.06$ kilometers on a paved, outdoor path at a comfortable, self-selected pace. To guarantee data quality, participants were instructed to clap three times at the start and end of each activity and the large spikes in acceleration were used to label each activity. To create smooth transitions between activities, $0.5$ seconds before and after the start of each activity were deleted. The total walking time ranged from $6.5$ minutes to $9.9$ minutes across participants \cite{fadel_differentiating_2019}.  The raw data are publicly available at \url{physionet.org/content/accelerometry-walk-climb-drive/1.0.0/}
+\subsection{Zhejiang University (ZJU) GaitAcc dataset}
+
+The ZJU-GaitAcc dataset consists of data collected while walking for the purpose of gait-based identification. One hundred and seventy five volunteers (approximately $2/3$ male, aged $16$ to $40$ years old) wore five Wii remotes containing an ADXL330 triaxial accelerometer placed at the left upper arm, left thigh, right wrist, right pelvis, and right ankle. The choice of side for placement of the devices was the same for all subjects; the authors claimed that wear side was not particularly important due to the symmetry of gait; this is debatable, but not something under our control. Data were  measured at at least $\pm$ $3$g (standard Earth gravitational unit) and typically up to $\pm$ $5$g with the approximate precision of $(5/128)$g and transmitted via Bluetooth at up to $100$ Hz. The signal was received by a computer and resampled at exactly $100$ Hz. The trial consisted of walking at a comfortable, self-selected pace along a $20$ meter (m) flat path six times in a row. Each repetition was seven to 15 seconds in length and consisted of seven to 14 full gait cycles. Portions of walking were manually labelled, and data corrupted due to bad wireless connection between the Wii and the computer were manually removed. In contrast to other existing gait acceleration data sets, the ZJU-GaitAcc data includes a second walking session between one week and six months after the initial session. One hundred and fifty three subjects were present for both sessions. Volunteers were not given any instructions on clothing or footwear for either session except they were asked to not wear slippers. As such, the second session presents a unique opportunity to test some of the challenges associated with gait prediction. Indeed, individuals are likely to change clothing, footwear, and accelerometer placement, while their physical and emotional states may also be different between the two sessions \cite{zhang_accelerometer-based_2015}. For our purposes, we use only the $153$ subjects who were present for both sessions in the following analyses. To obtain one acceleration time series for each individual, we concatenated the walking portions of each individual's data from their wrist-worn accelerometer. The data are publicly available for non-commercial use at \url{www.ytzhang.net/datasets/zju-gaitacc}. 
+
+\section{Methods for Subject Identification}
+\label{sec:meth}
+\subsection{Notation}
+Let $x_{ij}(s), y_{ij}(s), z_{ij}(s)$ denote acceleration measured in Earth gravitational units (g=$9.81 {\rm m/s}^2$) along three orthogonal axes for subject $i$, $i = 1, \dots, N$, at second $j$, $j = 1, \dots, J_i$, and centisecond (one hundredth of a second) $s$, $s = 1,\dots, S=100$ (since in both datasets, observations are collected at $100$ Hz). Here $J_i$ depends on study participants, because the number of seconds of data is different across individuals. We have two indicators for time, one that counts the seconds, $j$, and one that counts the centiseconds within each second, $s$, because our basic unit of analysis is the second and analytic methods are based on the accelerometry patterns in a collection of seconds for each individual. Each second contains $100$ sampling points for a total of $300$ observations along the three axes.  For each observation, we calculate the vector magnitude of acceleration $v_{ij}(s) = \sqrt{x^2_{ij}(s)+ y^2_{ij}(s) + z^2_{ij}(s)} $, which is rotation-invariant and less sensitive to small movements or location changes of the accelerometer. 
+
+
+For the purposes of this paper the data for subject $i$ consists of $v_{ij}(s)$ $j=1, \ldots, J_i$, $s =1,\ldots,  S=100$ for a total of $100\cdot J_i$ observations.  Indeed, some individuals have less observed walking time simply because they walked faster. Given a sub-sample of these observed walking data (training data) from subjects $i = 1, \dots, N$, our goal is to build models that can identify individuals from their remaining data (testing data). We employ two separate frameworks: prediction using covariates derived from the transformed time series, which we refer to as ``image partitioning," and functional regression, which avoids partitioning of the predictor space. For both approaches, we first obtain the joint distribution of the acceleration and lag acceleration for all possible lags; the joint distribution can be represented as images. For the image partitioning approach, we compute summary measures of the joint acceleration, lag acceleration distribution for a subset of lags and then use these summaries to predict individuals. The functional approach avoids image partitioning and uses the joint distribution of acceleration and lag acceleration for all possible lags. We first describe obtaining the joint distribution, then describe the two modeling approaches. 
+
+\subsection{Obtaining the joint distribution of acceleration and lag acceleration}\label{subsec:ADF}
+
+To transform the raw time series, we first choose an interval length $S$ and segment the time series into $J_i$ non-overlapping intervals of length $S$ for each subject. In our case we will use $S=100$ centiseconds (equal to a one second interval), but other choices may be more appropriate in other time series applications. We choose to segment into seconds in this setting for ease of interpretation. 
+
+Next, for each time lag $u =1,\ldots, S-1$ we construct the set of three dimensional vectors $\{v_{ij}(s-u), v_{ij}(s), u\}$ for $s = u+1, \dots, S$. The first entry in this vector is the the lagged time series (observed at $s-u$), the second entry is the time series (observed at $s$), and the last entry is the lag (denoted by $u$). For a fixed lag $u$ the number of vectors $\{v_{ij}(s-u), v_{ij}(s), u\}$ is equal to  $S-u$, one for each $s=u+1,\ldots,S$. For example, for $u = 1$ (equivalent to a $0.01$ seconds lag), there are $S-u = 99$ such vectors for every $i=1,\ldots, N$ and $j \in 1,\ldots, J_i$: 
+$\{v_{ij}(1), v_{ij}(2), 1\}, \{v_{ij}(2), v_{ij}(3), 1\}, \dots, \{v_{ij}(99), v_{ij}(100), 1\}\;.$
+For $u = 99$ (equivalent to a $0.99$ seconds lag), there is only one vector: $S-u = 1$ for every $i=1,\ldots, N$ and $j \in 1,\ldots, J_i: \{v_{ij}(1), v_{ij}(100), 99\}\;.$
+
+For each subject, $i$, the collection of three dimensional vectors $\{v_{ij}(s-u), v_{ij}(s), u\}$ for all intervals $1, \dots, J_i$ and all lags $u=1,\ldots,S-1$ is a three-dimensional image representation of the vector magnitude time series. We refer to this as the empirical joint distribution of acceleration and lag acceleration. The number of observations for subject $i$ in this image is equal to 
+$\sum_{u=1}^{S-1}(S-u)J_i=J_i\sum_{u=1}^{S-1}u=J_i\frac{S(S-1)}{2}\;.$
+
+\begin{figure}[!ht]
+    \centering
+   \includegraphics[width=.75\textwidth]{paper1_chapter/figure/fig_2_revised.png}
+    \caption{Subset of the empirical joint distribution of acceleration and lag acceleration for subject 19 in the IU data. The pairs $\{v_{ij}(s-u), v_{ij}(s)\}$ are plotted for $u = 1, 15, 30, 45$ centiseconds (columns) and $j = 1, 2$ seconds (rows).  
+    }
+    \label{fig:autocorr_s19}
+\end{figure}
+
+Figure~\ref{fig:autocorr_s19} provides the intuition into how this image is constructed. The first row of three panels corresponds to the first second, $j=1$, while the second row corresponds to the second second, $j=2$, of data for subject 19 in the IU data. The columns correspond to three different lags, $u=1$, $15$, and $99$ centiseconds, respectively. Each panel in the first column contains $99$ pairs of observations $\{v_{ij}(s-1), v_{ij}(s)\}$, for $s=1, \ldots, S-1$. Note the strong correlation between the observations, as the values of acceleration do not change too much for one centisecond. The shape of the resulting point cloud resembles that of a bivariate Normal distribution with high correlation for this time lag.  Each panel in the second column contains $85$ pairs of observations $\{v_{ij}(s-15), v_{ij}(s)\}$, for $s=1, \ldots, S-15$. Compared to the first column, the point clouds exhibit lower correlation and exhibit structure beyond simple linear association. Finally, the panels in the last column contain only one pair of observations $\{v_{ij}(s-99), v_{ij}(s)\}$. The three-dimensional image predictor is the union of all these panels over all the seconds, $J_i$, and all lags, $u$, for one individual. We refer to this image as the empirical joint distribution of acceleration and lag acceleration. 
+
+This joint distribution is the foundation of both prediction approaches we employ. When we predict subject $i_0$ the outcome is $Y_{ij}^{i_0}$, where $Y_{ij}^{i_0}=1$ if $i=i_0$ and $0$ otherwise, i.e. the outcome is an indicator that data belongs to study participant $i_0$. The predictors are $\{v_{ij}(s-u),v_{ij}(s),u:u\in 1,2,\ldots,S-1; s\in u+1,\ldots,S\}$. 
+ Thus, at the conceptual level, we changed the problem of identifying individuals from their high density accelerometry data recorded during walking into a binary regression of the type
+\begin{equation}
+Y_{ij}^{i_0} \; |\; \{v_{ij}(s-u),v_{ij}(s),u:u\in 1,2,\ldots,S-1; s\in u+1,\ldots,S\}
+\label{eq:conceptual}
+\end{equation}
+where there are $J_{i_0}$ indicators equal to one (data observed from study participant $i_0$) and $(\sum_{i=1}^n J_i) - J_{i_0}$ indicators of zeroes (data for remaining study participants). One approach to this problem is to reduce the complexity of the predictor space via ``image partitioning," which  summarizes the three dimensional image into several predictors. The second approach is to consider the model $Y_{ij}^{i_0}\sim {\rm Bernoulli} \{p_{ij}^{i_0}\}$ where probabilities are modeled as a tri-variate functional regression model
+
+\begin{equation}
+{\rm logit}\{p_{ij}^{i_0}\}= \int_{s,u} F\{v_{ij}(s-u),v_{ij}(s),u\}dsdu
+\label{eq:3Dfunctional}
+\end{equation} 
+In this case parsimony is controlled by assuming that $F(\cdot,\cdot,\cdot)$ is smooth. In the following section we provide more details for both these approaches.  Implicit in both approaches is the assumption that the joint distribution of $\big(v_{ij}(s), v_{ij}(s-u)\big)$ and $\big(v_{ij}(s'), v_{ij}(s'-u)\big)$ are equal as long as the $v_{ij}(s), v_{ij}(s-u)$ are pooled over large enough $j$, i.e. as long as enough seconds are observed. Visual examination of the images derived from the joint distributions (i.e. the fingerprints shown in Fig. 6 for different subsets of seconds) and knowledge of the semi-regular pattern of walking support this assumption. 
+
+
+\subsection{Image Partitioning}\label{sec:imagepartition}
+% start with this 
+The image partitioning approach consists of: (1) transforming the raw times series into an image, which is the empirical joint distribution of acceleration and lag acceleration; (2) extracting predictors from the transformed time series; (3) selecting important predictors, and (4) fitting prediction models with these predictors. We have already described step 1 and we now describe the other steps.
+
+\subsubsection{Extracting predictors and variable screening}\label{subsec:define_and_screen}
+
+Recall that the empirical joint distribution is obtained using many observations; one of our goals is to reduce the number of observations to a manageable number of predictors while also maintaining interpretability of results and predictive performance. As in our data sets $>99$\% of all values of $v_{ij}(s)$ are between $0$ and $3$g, we partition the $[0,3]\times [0,3]$ interval in $\mathbb{R}^2$ into squares of length $0.25$g. This results in a total of $144$ grid cells for each lag $u$. Each pair $\{v_{ij}(s-u), v_{ij}(s)\}$ belongs to one of these cells, and the few cases where $v_{ij}(s) > 3$ are discarded from the data set. For example, $\{v_{ij}(s-u), v_{ij}(s)\} = \{0.2, 0.1\} \in [0, 0.25] \times [0, 0.25]$, which happens to be the first grid cell. The number of points (i.e., pairs) in each grid cell for each lag is computed and the collection of the number of points in each grid cell comprises the set of potential predictors. 
+
+We could use all lags, $u=1,\ldots,S-1=99$, but in a previous study \cite{koffman_fingerprinting_2023} we have shown that using only three shorter lags $u = \{15, 30, 45\}$ is actually enough to maintain the predictive performance of our models. To investigate whether this is the case for machine learning as well as logistic regression, we report the results of using six lags $u = \{15, 30, 45, 60, 90\}$ in the Appendix section ``Comparison of lags used in ML models." The intuition is that data that are very close tend to be highly correlated and do not provide much additional information. For example, the first column panels in Figure~\ref{fig:autocorr_s19} indicate how correlated $v_{ij}(s-1)$ and $v_{ij}(s)$ are, which implies that using $u = 15$ and $u = 16$, for example, would not be an improvement over using just $u= 15$. The reason for the better performance of the shorter lags in our previous analysis \cite{koffman_fingerprinting_2023} isn't immediately clear, but could relate to the length of a typical stride or the fact that shorter lags result in more observations per second. Thus, while using more lags is conceptually and practically possible, this choice provides a good balance between complexity and predictive performance. We chose 0.25g for the grid cell size because we previously found that increasing grid cell size beyond 0.25g decreases accuracy \cite{koffman_fingerprinting_2023}.
+
+With three lags and $144$ cells for each lag  there are a total of $C=3\times 144 =432$ possible cells for each distribution. We define the predictors  $X_{ijc}$ as the number of observations $\{v_{ij}(s-u),v_{ij}(u)\}$ for $s=u+1,\ldots,S$ that fall into cell $c$ for subject $i$ and each second $j$.  Figure~\ref{fig:extraction_19} illustrates the process of obtaining $X_{ijc}$ for seconds $1$ (first row) and $2$ (second row) from participant $19$ in the IU data. For illustration purposes, the image is zoomed in on the intervals $[0.75,1.50]\times [0.75,1.50]$ g, which contains only $9$ cells for each lag. However, the original space is $[0.00,3.00]\times [0.00,3.00]$ and contains $144$ cells for each lag.
+
+
+
+\begin{figure}[!ht]
+ \centering
+ \includegraphics[width=.75\textwidth]{paper1_chapter/figure/fig_3_revised.png}
+    \caption{Predictor extraction for subject 19. 
+    The values of $X_{ijc}$ for subject 19 in the IU data are shown for $u = 1, 15, 30, 45$ (columns) and $j = 1,2$ (rows). The white number in each grid cell is the value of $X_{ijc}$ for that cell. For example, $X_{i = 19, j = 2, c = [0.75, 1.00), [0.75, 1.00)} = 61$ and is shown in the bottom-left corner of the plot. Only a subset of the grid cells is shown as the other grid cells have no observations for these two seconds} 
+    \label{fig:extraction_19}
+\end{figure}
+
+Let us focus on the panel in the first row and second column, which corresponds to a lag of $u=15$ centiseconds. There are $85$ black dots in this panel corresponding to the pairs $\{v_{i1}(s-15),v_{i1}(s)\}$ for $s=16,\ldots,S=100$. The green square (cell) in the middle of the panel contains $39$ of these pairs of observations, which is indicated by the number in the middle of the square and is coded from yellow (high) to purple (zero). For this cell $c$ we build the predictor $X_{i1c}=39$ and the process is repeated for every cell shown in the figure. Thus, for lag $u=15$ we build the predictor vector (enumerating by rows from first row) $(0,0,0,15,39,0,15,16,0)$. Similarly we build predictors based on lags $u=30$ and $u=45$ centiseconds and we simply append all these predictors in a long vector of predictors.
+
+Once these predictors are built, we have transformed the problem described in~\eqref{eq:conceptual} into the regression or prediction problem
+\begin{equation}
+Y_{ij}^{i_0}\;| \;X_{ij1},\ldots,X_{ijC}
+\label{eq:partitioning_reg}
+\end{equation}
+where $X_{ijc}$ is the number of observations $\{v_{ij}(s-u),v_{ij}(s)\}$ for study participant $i$ in second $j$ and cell $g$, and $Y_{ij}^{i_0}$ is $1$ if $i=i_0$ and $0$ otherwise. The assumption is that not much information was lost by summarizing the images via the $X_{ijc}$ variables. The most important consequence of the image partitioning is that it transforms a problem that is intuitively described into a well defined statistical problem. Indeed, if one agrees that this is a good idea, then there are many potential solutions to extract the maximum amount of predictive performance from the $X_{ijc}$ variables. 
+
+
+Because many grid cells contain few observations, we applied a variable screening approach by removing grid cells for which both (1) there are very few unique values; and (2) the ratio of the most common value to the second-most common value is large \cite{recipes}. Specifically, grid cells for which both fewer than $10$\% of values across all seconds and individuals are unique and for which the ratio of the most common to the second most common value is greater than $95:5$ are removed. An example of a hypothetical predictor that would satisfy these criteria is one that, in $100$ samples, has three unique values (say $0$, $1$, and $2$) and the value for $98$ of the $100$ samples is $0$. 
+
+
+
+\subsubsection{Model Fitting}\label{subsec:modelfitting}
+Once the set of predictors is established, they can be used in any classification algorithm. We have already published a method based on logistic regression using all variables obtained from the image partitioning \cite{koffman_fingerprinting_2023}. Here we explore a large number of machine learning models to see whether the performance of logistic regression can be improved. In all models we have employed one versus the rest prediction and we have conducted the same procedure for each study participant; technically, what changes from one model to another is the identifier for the study participant who is predicted at that time. 
+
+
+
+For the logistic regression approach, a separate multivariable logistic regression model is fit on the training data for each subject. Models provide an estimation of the probability ${\rm Pr}(Y_{ij}=k)$ ${\rm Pr}(Y_{ij}=i_0)$ for every pair of study participants, $(i,k)$, $(i,i_0)$ at every second, $j=1,\ldots, J_{\rm test}$. This calculation is done separately for every study participant, $i$; recall that a different model is fit for every study participant. To predict the identity of each subject, we first normalize so that all predicted probabilities for each second sum to one, then average these probabilities over all seconds to get a single probability for each subject's potential identity: $$\widehat{\rm Pr}(Y_{i} = k) = \frac{1}{J_\text{test}}\sum_{j=1}^{J_\text{test}}\widehat{\rm Pr}(Y_{ij} = k)\;.$$
+$$\widehat{\rm Pr}(Y_{i} = i_0) = \frac{1}{J_\text{test}}\sum_{j=1}^{J_\text{test}}\widehat{\rm Pr}(Y_{ij} = i_0)\;.$$
+Finally, we classify subjects as $\widehat{k}(i) = {\rm argmax}_{k} \widehat{\rm Pr}(Y_i=k)$. $\widehat{i_0}(i) = {\rm argmax}_{i_0} \widehat{\rm Pr}(Y_i=i_0)$.
+
+
+
+For machine learning, several candidate models are tuned using a parameter grid search using five-fold cross-validation within the training data. The candidate models are: radial basis support vector machine (SVM) \cite{karatzoglou_kernlab_2004}, polynomial basis SVM \cite{karatzoglou_kernlab_2004}, random forest \cite{kuhn_applied_2013}, Bayesian additive regression tree (BART) \cite{chipman_bart_2010}, penalized logistic regression \cite{kuhn_applied_2013}, neural network \cite{kuhn_applied_2013}, boosted tree \cite{chen_xgboost_2016}, naive Bayes classifier \cite{kuhn_applied_2013}, k-nearest neighbors \cite{hechenbichler_weighted_2004}, and flexible discriminant analysis \cite{hastie_flexible_1994}. All models were fit using tidymodels in R \cite{kuhn_tidy_2023, R, tidymodels}. The tuning parameters for each model were chosen as those that resulted in the best five-fold cross-validated AUC (Area under the Receiver Operating Curve) in the training data; predictions were obtained from fitting this final model on the testing data. Once the predictions on the test data are obtained, the same one versus the rest classification scheme is used as the logistic regression. Since a separate model is fit for each individual, the tuning parameters could vary between models. In both the logistic regression and machine learning settings, one vs. rest classification is used instead of multinomial regression approaches for computational feasibility. As the number of parameters in the models and the number of subjects being predicted are already quite large, the use of multinomial regression will cause the number of parameters to explode.
+
+
+\subsubsection{Correlation and multiplicity adjusted (CMA) inference}\label{sec:CMA_inference} 
+% add p value 
+In logistic regression we can fit the full model and obtain a vector of parameter estimates $\widehat{\boldsymbol{\beta}}$ together with a covariance matrix $\widehat{\mathit{V}}_{\boldsymbol{\beta}}=\widehat{\rm Var}(\widehat{\boldsymbol{\beta}})$. Confidence intervals are typically obtained as
+$\widehat{\boldsymbol{\beta}}\pm z_{1-\alpha/2}{\rm diag}(\widehat{\mathit{V}}_{\boldsymbol{\beta}})$,
+where $z_{1-\alpha/2}$ is the $1-\alpha/2$ quantile of a $\mathcal{N}(0,1)$ distribution and $\text{diag}(\mathit{A})$ is the diagonal vector of a symmetric matrix $\mathit{A}$. In our setting, there are two problems with this approach. First, this does not adjust for correlation among tests, which may be large because the $X_{ijc}$ are highly correlated. Second, it does not correct for multiplicity of tests, which can be quite large. To address these issues, we calculate and report correlation and multiplicity (CMA) confidence intervals; for more details, see Chapter 2 in \cite{crainiceanu2023book}. Here we provide a short self-contained summary of the procedure. 
+
+Under the assumption that $\widehat{\boldsymbol{\beta}}$ is multivariate normal, we have $ \widehat{\boldsymbol{\beta}} \sim N(\boldsymbol{\beta}, \widehat{\mathbf{V}}_\beta)$. If
+$\widehat{\mathbf{D}}_\beta = \sqrt{\text{diag}(\widehat{\mathbf{V}}_\beta})$ is the $G\times 1$ dimensional vector of square roots of the diagonal elements of $\widehat{\mathbf{V}}_\beta$, then 
+ $(\widehat{\boldsymbol{\beta}}-\boldsymbol{\beta})/\widehat{\mathbf{D}}_\beta \sim N(\mathbf{0}, \widehat{\mathbf{C}}_\beta)$,
+where the ratio of the two vectors is entrywise, $\widehat{\mathbf{C}}_\beta = \widehat{\mathbf{V}}_\beta/\widehat{\mathbf{D}}_\beta \widehat{\mathbf{D}}_\beta^t$, and the ratio of these two matrices is entrywise. Thus, if we find $q(\widehat{\mathbf{C}}_\beta, 1-\alpha)$ that satisfies 
+$P\{q(\widehat{\mathbf{C}}_\beta, 1-\alpha)\mathbf{e} \leq (\widehat{\boldsymbol{\beta}}-\boldsymbol{\beta})/{\widehat{\mathbf{D}}_\beta}  \leq q(\widehat{\mathbf{C}}_\beta, 1-\alpha)\mathbf{e}\}$,
+where $\mathbf{e} = (1, 1, \dots 1)^t$ is a $G\times 1$ dimensional vector of ones, then CMA confidence intervals are: 
+
+$$ \widehat{\boldsymbol{\beta}} \pm q(\widehat{\mathbf{C}}_\beta, 1-\alpha)\sqrt{\text{diag}(\widehat{\mathbf{V}}_\beta)}\;.$$
+
+We will use the {\ttfamily mvtnorm::qmvnorm} \cite{mvtnorm} function to obtain the quantile $q(\widehat{\mathbf{C}}_\beta, 1-\alpha)$ using the following one line of code. 
+\begin{verbatim} 
+ q <- mvtnorm::qmvnorm(p = .95, corr = C, tail ="both.tails")$quantile
+\end{verbatim}
+
+This procedure provides an explicit screening approach for finding the walking fingerprint by: (1) regressing the person-specific indicator for each second on all predictors obtained from the image partition; and (2) identifying only those predictors that are significant at a given level $\alpha$ using the CMA procedure.
+
+\subsection{Functional Regression}\label{subsec:functional_regression}
+The image partitioning approach reduces the complexity of images and conducts regression in this simplified predictor space. An alternative is to consider the entire image as a predictor, but induce parsimony using smoothing assumptions on the shape of the association between  the image and the probability that the data originates from a particular individual. 
+Our functional regression approach starts with the complete data $\{Y_{ij}^{i_0},v_{ij}(s-u),v_{ij}(s),u\}$ for all $i=1,\ldots,N$, $j=1,\ldots, J_i$, $u=1,\ldots,S-1=99$, and $s=u+1,\ldots,S=100$.  Our proposed approach is to fit the following model $Y_{ij}^{i_0}\sim {\rm Bernoulli} (p_{ij}^{i_0})$ where probabilities are modeled as a tri-variate functional regression model
+
+
+ 
+\begin{equation}
+{\rm logit}(p_{ij}^{i_0}) = \beta_0^{i_0} + \int_{u=1}^{S}\int_{s=u}^S F_{i_0}\{v_{ij}(s-u), v_{ij}(s), u\}dsdu\;
+\end{equation}
+where $F(\cdot,\cdot,\cdot)$ is a trivariate smooth function that takes values at every point in the domain of the three-dimensional images (complete empirical joint distribution). This idea is related to the bivariate functional generalized additive models \cite{cui2021additive,mclean2014functional,mullerGAM}, though the application context here is different, we are working with a trivariate image as a predictor, the domain of the function is not rectangular, and the size of the data sets is much larger than what was previously considered. As we will discuss, we are pushing the boundaries of what these models can actually handle.
+
+The idea is to expand the functional coefficient in a spline basis and penalize the roughness of the function using quadratic penalties. More specifically, we use a Kronecker product of spline basis expansion of the type
+$$ F(d,v,u)=\sum_{k_d=1}^{K_d}\sum_{k_v=1}^{K_v}\sum_{k_u=1}^{K_u}\beta_{k_d,k_v,k_u}B_{k_d}(d)B_{k_v}(v)B_{k_u}(u)\;,$$
+where $B_{k_d}(\cdot)$, $k_d=1,\ldots,K_d$, $B_{k_v}(\cdot)$, $k_v=1,\ldots,K_v$, and $B_{k_u}(\cdot)$, $k_v=1,\ldots,K_v$ are univariate spline bases. We can denote by $\boldsymbol{\beta}$ the $K_dK_vK_u\times 1$ dimensional vector of $\beta_{k_d,k_v,k_u}$ parameters in a specified order.  With this notation the functional regression model becomes
+
+\begin{equation}{\rm{logit}} (p_{ij}^{i_0}) = \beta_0^{i_0} + \int_{u=1}^{S}\int_{s=u}^S \sum_{k_d= 1}^{K_d}\sum_{k_v=1}^{K_v}\sum_{k_u=1}^{K_u}\beta_{k_d,k_v,k_u}B_{k_d}\{v_{ij}(s-u)\}B_{k_v}\{v_{ij}(s)\}B_{k_u}(u)dsdu
+\end{equation}
+
+
+The double integral in this equation is a theoretical representation of what we would like to calculate. In practice, we approximate the integrals using a Riemann sum. Let $s_l$, $l=1,\ldots,L$ be a grid of points where the integral over $s$ is approximated and $a_l$, $l=1,\ldots,L$ the corresponding Riemann sum weights. Similarly, let $u_m$, $m=1,\ldots,M$ be a grid of points where the integral over $u$ is approximated and $b_m$, $l=1,\ldots,M$ the corresponding Riemann sum weights. With this notation the double integral (and triple sum) can be approximated by the following quintuple-sum: 
+\begin{align*}
+     =&\sum_{m}b_{m}\sum_{l}a_{l}\sum_{k_d= 1}^{K_d}\sum_{k_v=1}^{K_v}\sum_{k_u=1}^{K_u}\beta_{k_d,k_v,k_u} B_{k_d}\{v_{ij}(s_l-u_m)\}B_{k_v}\{v_{ij}(s_{l})\}B_{k_u}(u_{m})\\
+=& \sum_{k_d= 1}^{K_d}\sum_{k_v=1}^{K_v}\sum_{k_u=1}^{K_u} \beta_{k_d,k_v,k_u}\sum_{m}b_{m}\sum_{l}a_{l}B_{k_d}\{v_{ij}(s_{l}-u_{m})\}B_{k_v}\{v_{ij}(s_{l})\}B_{k_u}(u_{m})\}\\
+=& \sum_{k_d= 1}^{K_d}\sum_{k_v=1}^{K_v}\sum_{k_u=1}^{K_u} \beta_{k_d,k_v,k_u} C_{ij,k_d,k_v,k_u}\;,
+\end{align*}
+where $C_{ij,k_d,k_v,k_u}=\sum_{m}b_{m}\sum_{l}a_{l} B_{k_d}\{v_{ij}(s_{l}-u_{m})\}B_{k_v}\{v_{ij}(s_{l})\}B_{k_u}(u_{m})$ are subject and second-specific covariates that correspond to  the $(k_d,k_v,k_u)$ index of the Kronecker product spline basis. One could fit this model directly by calculating the $C_{ij,k_d,k_v,k_u}$ variables and conducting a binary regression of the $Y_{ij}^{i_0}$ outcomes on these covariates.  
+
+
+There are three problems associated with this potential solution. First, the total number of parameters, $K_dK_vK_u$, increases very fast with the number of basis functions in each dimension. For example, if $K_d=K_v=K_u=20$ the total number of predictors would be $8000$, which substantially exceeds the number seconds of walking for each individual. Second, these covariates are likely to be highly correlated with each other, which makes the design matrix very close to being rank deficient. Third, the fit depends strongly on the choice of number of knots and their placement. 
+
+To address these problems we propose to use penalized splines, where a quadratic penalty is imposed on $\boldsymbol{\beta}$. More precisely, we maximize the penalized log likelihood $
+ l(\boldsymbol{Y}; \boldsymbol{\beta})-\boldsymbol{\beta}^t\mathit{S}_{\boldsymbol{\lambda}}\boldsymbol{\beta} \;$,
+where $l(\boldsymbol{Y}; \boldsymbol{\beta})$ is the Bernoulli log likelihood, $\mathit{S}_{\boldsymbol{\lambda}}$ is a block diagonal penalty matrix specific for the tri-variate Kronecker product of splines, and $\boldsymbol{\lambda}$ is a length three vector of smoothing parameters. There are many options for choosing the structure of the penalty, but here we use derivative-based penalties \cite{wood_p-splines_2017}. Such a model can be fit using the {\ttfamily mgcv::gam} function, as described below 
+
+\begin{minted}[bgcolor=LightGray]{R}
+gam(Y ~ te(D_i, S_i, U_i, k = c(5, 5, 5), by = lmat),
+family=binomial, 
+method="REML")
+\end{minted}
+
+which sets $K_d = K_u = K_v = 5$. While this code is easy to read, it requires careful manipulation of the accelerometry time series into the appropriate predictor matrices {\ttfamily D\_i}, {\ttfamily S\_i}, and {\ttfamily U\_i}. We provide a full description of this process in the appendix and the R code is available at \url{https://github.com/lilykoff/ml_walking_fingerprint}. Once these models are fit, one can estimate the probabilities $\widehat{p}_{ij}^{i_0}$ and study participants can be predicted using the same techniques described for image partitioning. The use of one vs. rest classification (vs. multinomial approaches) is computationally necessary in the functional regression setting; as we are already pushing the boundaries of these models, they are not able to handle the even larger number of parameters required by multinomial models. 
+
+\section{Results/Applications}
+ 
+\subsection{Prediction} 
+\subsubsection{Train/test split}
+For the IU data, $75$\% of the data from each subject were used for training and the remaining $25$\% were used for testing the models. The training and testing data were randomly sampled in seconds, so time ordering was not preserved; previous analyses \cite{koffman_fingerprinting_2023} showed that ignoring the ordering of the seconds does not have a large impact on predictive accuracy; however, the sampling was stratified by subject to preserve the original proportion of data from each individual. For the ZJU data, two separate prediction tasks were performed. In the first, only data from session 1 was used. As with the IU data, $75\%$ of the data from each subject were used for training and the remainder were used for testing. We henceforth refer to this task as ``ZJU S1." For the second task, data from session 1 were used to train the model, and data from session 2 were used for testing; this is referred to as ``ZJU S1S2" in the rest of the paper. The purpose of the second task was to investigate the performance of each model when using data collected at different time points. Note that, intuitively, it may be easier to predict walking of an individual within the same walking session than from two walking sessions that are weeks apart. Table~\ref{tab:train_test_seconds} summarizes the number of seconds used for training and testing for each data set and task. For example, the first row indicates that for the  the IU data, a median (IQR) of $367$ ($51.5$) seconds per subject are used for training while a median (IQR) of $122.5$ ($16.25$) seconds per subject are used for testing. 
+
+\begin{table}[ht]
+
+\centering 
+\caption{Median and IQR of the number of seconds used across subjects for each data set and prediction task}
+\label{tab:train_test_seconds}
+\begin{tabular}{|l|ll|ll|}
+\hline
+\multicolumn{1}{|c|}{\multirow{2}{*}{Data and task}} & \multicolumn{2}{c|}{Median (s)}         & \multicolumn{2}{c|}{IQR (s)}            \\ \cline{2-5} 
+\multicolumn{1}{|c|}{}                               & \multicolumn{1}{l|}{Training} & Testing & \multicolumn{1}{l|}{Training} & Testing \\ \hline\hline
+IU                                                   & \multicolumn{1}{l|}{367}      & 122.5   & \multicolumn{1}{l|}{51.5}     & 16.25   \\ \hline
+ZJU S1                                               & \multicolumn{1}{l|}{49}       & 17      & \multicolumn{1}{l|}{13.0}     & 5.00    \\ \hline
+ZJU S1S2                                             & \multicolumn{1}{l|}{66}       & 65      & \multicolumn{1}{l|}{18}       & 15      \\ \hline
+\end{tabular}
+\end{table}
+
+\subsubsection{Identification Rates}
+To quantify how well individuals are predicted by their own walking data, we calculated the rank-$1$ (how often an individual was ranked as the most likely individual using their walking data) and rank-$5$ (how often an individual was ranked among the top five likeliest individuals) for each method, data set, and prediction task. By definition, rank-$5$ accuracy is always larger than or equal to rank-$1$ accuracy. The accuracy for each model and task are summarized in Table ~\ref{tab:accuracy_summary}.
+
+For the IU data the rank-$1$ accuracy of the logistic and functional regression approaches is perfect, while that of machine learning is almost perfect, misclassifying just one study participant. Rank-$5$ accuracy for all methods is perfect in the IU data. This is not surprising given our previous results and the way the study was conducted. Indeed, the task here is to recognize individuals using around six minutes of training data from the same walking session, where the complete session consisted of one long walk. This provides enough data to populate the image (complete joint distributions), while the image remains relatively stable between the training and testing sets. In this setting the method for building predictors, not the specific prediction algorithm, does the heavy lifting.
+
+For the ZJU S1 task, functional regression performs best, achieving $98$\% rank-1 accuracy and $100$\% rank-5 accuracy.  Logistic regression ($92$\% rank-1 accuracy and $97$\% rank-5 accuracy) and machine learning (93\% rank-1 and 99\% rank-5 accuracy) performed comparably well. This is remarkable, as the original methods were not developed for training on short walking intervals; here we used less than one minute of training data per person. 
+
+Predicting session 2 using data from session 1 in the ZJU data (ZJU S1S2) is the most difficult task for all models. Machine learning ($58$\%)and functional regression ($53$\%) performed best in terms of rank-1 accuracy. While logistic regression had a lower rank-1 accuracy of $41$\%, its rank-5 accuracy ($75$\%) was comparable to that of machine learning ($76$\%) and functional regression ($69$\%). It is likely that the poor rank-1 accuracy of logistic regression is due to the large number of predictors used, which was not as well balanced by the reduced number of observations. Given the difficulty of the task and the small data sets, the performance of these methods is exceptional. As a side note, the number of correctly identified individuals under a permutation of labels would follow a Poisson distribution with mean $1$. That is, the probability that four or more individuals are correctly identified at random is less than 0.004, irrespective of the number of individuals in the data set \cite{fingerprintingCaffo}.
+
+
+\begin{table*}[t]
+\caption{Summary of Accuracy}
+\label{tab:accuracy_summary}
+\centering
+\begin{small}
+\begin{tabularx}{\textwidth}{p{2.5cm}p{3cm}l*{5}{>{\centering\arraybackslash}X}}
+\hline
+Data and Task & Model & & Rank-1 Accuracy & Rank-5 Accuracy & Rank-1 Correct & Rank-5 Correct & Total (n)\\
+\hline \hline 
+\multirow{3}{*}{IU} 
+  & \multirow{2}{*}{Image partitioning} & Logistic & 1.00 & 1.00 & 32 & 32 & \multirow{3}{*}{32}\\
+  & & ML & 1.00 & 1.00 & 32 & 32 & \\ \cline{2-7}
+  & Functional regression & & 1.00 & 1.00 & 32 & 32 & \\
+\hline \hline 
+\multirow{3}{*}{ZJU S1}  
+  & \multirow{2}{*}{Image partitioning} & Logistic & 0.92 & 0.97 & 141 & 149 & \multirow{3}{*}{153} \\
+  & & ML & 0.93 & 0.99 & 142 & 152 & \\
+  \cline{2-7}
+  & Functional regression & & 0.98 & 1.00 & 150 & 153 & \\
+\hline \hline 
+\multirow{3}{*}{ZJU S1S2} 
+  & \multirow{2}{*}{Image partitioning} & Logistic & 0.41 & 0.75 & 63 & 114 & \multirow{3}{*}{153} \\
+  & & ML & 0.58 & 0.78 & 88 & 120 & \\
+  \cline{2-7}
+  & Functional regression & & 0.53 & 0.69 & 81 & 106 & \\
+\hline 
+\end{tabularx}
+\end{small}
+\end{table*}
+
+
+
+\subsubsection{Sensitivity analysis to the number of seconds in the testing set}\label{subsubsec:classification}
+
+So far, we have reported accuracy based on averaging over all seconds in the testing data to get a single prediction for each individual. However, we can average over shorter intervals to investigate how sensitive methods are to the number of seconds in the testing data. Figure~\ref{fig:accuracies} displays rank-1 and rank-5 accuracy for the three models, averaged over a varying number of seconds for the three prediction tasks. For example, lines in the upper-left hand panel of Figure~\ref{fig:accuracies} demonstrates how the rank-1 accuracy changes for the functional regression (green, solid line), logistic regression (orange, dashed line), and machine learning (purple, long-dashed line) as we average predictions in the test data over between $1$ second and $60$ seconds. As we average over more seconds in the testing data, the accuracy increases, because information is accumulated over multiple seconds and variability decreases. For the IU data, near-perfect rank-1 accuracy is achieved when averaging over at least $25$ seconds in the testing data for all models and perfect rank-5 accuracy is achieved when averaging over more than $1$ second. Essentially, this means that the top 5 predictions for each second in the testing data almost always contain the true subject. For the ZJU S1 task, averaging over increasing numbers of seconds in the testing data improves rank-1 and rank-5 accuracy for all models; comparison is only shown for up to $20$ seconds because no individuals have more than $20$ seconds of testing data present. The difference in the patterns in the IU data and ZJU S1 task likely arises from the smaller training data sets available in ZJU S1. The effect is that the empirical joint distribution is not completely filled in, but as more seconds are used for testing, the likelihood for recognizing the individual from multiple seconds of data increases. The final column shows that, for the ZJU S1S2 task, improvements in rank-1 and rank-5 accuracy level off at around $50$ seconds of testing data for all models. This is likely due to the fact that the walking of some individuals is so different between sessions 2 and 1, that they are difficult to identify even if they walk longer. 
+
+\begin{figure}[!ht]
+\centering
+ \includegraphics[width=.75\textwidth]{paper1_chapter/figure/acc_fig_rev.png}   
+ \caption{Classification Metrics over Varying Number of Seconds in Testing Data. First row: rank-1 accuracies; Second row: rank-5 accuracies. Each column corresponds to different data and prediction tasks. The lines show how accuracy for each model changes as the number of seconds averaged over in the testing data is increased.}
+ \label{fig:accuracies}
+\end{figure}
+
+
+\subsubsection{Machine Learning Models}\label{subsubsec:ML}
+Ten machine learning models were considered for each prediction task. The supplemental section "Machine Learning Model Performance" summarizes the performance of the separate models. In the IU data, all machine learning methods except for the Naive Bayes classifier predicted 100\% of the participants correctly. In the ZJU S1 task, k-nearest neighbors, neural network, penalized logistic regression, polynomial basis SVM, and the random forest correctly predicted at least 90\% of subjects. In the ZJU S1S2 task, penalized logistic regression, k-nearest neighbors, neural network, and polynomial-basis SVM predicted more than 55\% of subjects. If the results of the tasks are combined, k-nearest neighbors and neural network result in the most subjects correctly predicted across all tasks.
+
+
+\subsection{Inference} \label{subsec:inference}
+\subsubsection{Correlation and multiplicity adjustment (CMA)}
+Correlation and multiplicity adjusted (CMA) confidence intervals were calculated for each of the image-partitioning based logistic regression models to obtain estimates for the effect of points in each grid cell on the odds of a subjects' identity. To illustrate the use of CMA in prediction, we consider results from ZJU S1, predicting individuals within the same visit. Figure~\ref{fig:timing1} displays the grid cells identified from the logistic regression for subject $143$ using unadjusted (for correlation and multiplicity) confidence intervals and p-values. Figure~\ref{fig:timing2} displays the grid cells that remain significant after adjusting for  correlation and multiplicity of the tests. Each grid cell is colored according to its point estimate, where darker shades of red correspond to larger coefficients. For example, the dark orange grid cell located at $[1.25, 1.5], [1.25, 1.5]$ in the left-most ($15$ centisecond lag) column of panel (a) indicates that a pair of points $(v_{ij}(s) \in [1.25, 1.5), v_{ij}(s-15) \in [1.25, 1.5]$ increases the odds of being subject $143$. We would like to highlight that these findings are not obvious, would not be easy to identify by a human observer of the original data, and have immediate practical implications. After correlation and multiplicity adjustment, in this example, only seven grid cells are significant, compared to $25$ in the unadjusted setting. For the IU participants, the number of significant cells after adjustment ranges from $0$ to $22$; in the ZJU participants it ranges from $0$ to $61$. The reduced number of cells allows us to focus on the areas of the fingerprint that are most important for distinguishing the individuals from the others. 
+
+
+\begin{figure}[!t]
+    \centering
+   \begin{subfigure}[b]{0.48\textwidth}
+        \centering
+        \includegraphics[width=\linewidth]{paper1_chapter/figure/unadjusted_gcs.png} 
+        \caption{Unadjusted} \label{fig:timing1}
+    \end{subfigure}
+    \hfill
+    \begin{subfigure}[b]{0.48\textwidth}
+        \centering
+        \includegraphics[width=\linewidth]{paper1_chapter/figure/cma_gcs.png} 
+        \caption{Correlation and Multiplicity Adjusted} \label{fig:timing2}
+    \end{subfigure}
+    \label{fig:cma}
+    \caption{Significant grid cells from image partitioning, Subject 143 ZJU Session 1. 
+    Panel (a): grid cells that are significant in distinguishing subject 143 from the other subjects in the ZJU S1 task. Panel (b):  grid cells that are significant after adjusting for correlation and multiplicity.}
+\end{figure}
+
+\subsubsection{Walking fingerprints}
+
+Visualization of a subset of the empirical joint distribution provides further insight into how the methods work.  Figure~\ref{fig:timing1_rep} displays the walking fingerprint for session 1 and session 2 for individuals who were correctly predicted between sessions, and Figure ~\ref{fig:timing2_rep} displays images for sessions 1 and 2 for those who were not correctly predicted. Clearly, those who were correctly predicted had much more consistent patterns between the two sessions.  This supports the idea that the methods described in this paper are homing in on important characteristics of walking and are sensitive to within-person changes in walking.
+
+
+\begin{figure}[!t]
+    \centering
+    \begin{subfigure}[t]{0.75\textwidth}
+        \centering
+        \includegraphics[width=.95\linewidth]{paper1_chapter/figure/wellpred.png} 
+        \caption{Well Predicted Subjects} \label{fig:timing1_rep}
+    \end{subfigure}
+    \hfill
+    \begin{subfigure}[b]{0.75\textwidth}
+        \centering
+        \includegraphics[width=.95\linewidth]{paper1_chapter/figure/poorpred.png} 
+        \caption{Poorly Predicted Subjects} \label{fig:timing2_rep}
+    \end{subfigure}
+    \label{fig:fingerprints}
+    \caption{Comparison of Data from Well and Poorly Predicted Subjects\\
+    \scriptsize{Panel (a) demonstrates a subset of the joint distribution for subject 5 (left) and subject 79 (right) in session 1 (top row) and session 2 (bottom row). The images are similar between sessions and these individuals were correctly identified in session 2 from their session 1 data. Panel (b) shows the same subset of the joint distribution for subject 3 (left) and subject 136 (right) in session 1 (top row) and session 2 (bottom row). The images do not look similar, and hence these individuals were not correctly predicted in the ZJU S1S2 task.}}
+\end{figure}
+
+
+\section{Discussion}
+
+We have proposed two frameworks for identifying individuals from their walking pattern derived from wearable accelerometers. In both frameworks, the raw time series is first transformed into the empirical joint distribution of acceleration and lag acceleration, which can be thought of as a three dimensional image. In the first framework, scalar predictors are obtained as summaries of a subset of this image and used in one versus the rest classification with logistic regression or machine learning models. We refer to this approach as image partitioning because predictors are derived by summing over areas of a 3D image. In the second framework, the entire joint distribution is used in a trivariate functional regression model. The two frameworks were deployed in two separate data sets and three different scenarios using publicly available accelerometry data. When there is at least $5$ minutes of data observed for each individual and we predict within the same session, as in the IU data, the performance of the two frameworks is similar: the functional regression slightly outperforms image partitioning approaches, but all achieve at least $97$\% accuracy. In the ZJU data when predicting within the same session, functional regression performs best, followed by the logistic regression and machine learning. For the difficult task of predicting the identity of individuals in a second session at least a week after the first, the functional regression and machine learning perform best, followed by logistic regression. The results are a large improvement over our previous work\cite{koffman_fingerprinting_2023}.
+
+
+The intuition behind the two frameworks is the same. The way people walk is semi-unique, but walking is inherently a repetitive movement. For a regression-based approach to accurately predict individuals, it must leverage the repetitive nature of the data. One way to harness this repetition is to look at autocorrelation. Both the functional regression and image partitioning approaches harness autocorrelation by using the joint distribution of acceleration and lag acceleration. The functional approach uses all pairwise accelerations and lag accelerations in a regression model. The image partitioning approach selects a subset of pairwise accelerations and lag accelerations and then creates predictors by counting the number of these pairs that fall in different categories. Autocorrelation and cross-correlation are often used in biomechanics research \cite{Pierrynowski2016, NelsonWong2009}, so it makes sense that models based on autocorrelation perform well in this setting. However, we are not aware of any models that use either (a) use autocorrelations and partitioning of the state space to derive new discrete predictors (image partitioning approach) or (b) employ autocorrelations in a trivariate functional regression.
+
+
+While the intuition behind the frameworks is the same, the implementation and results differ. The functional approach appears to perform better in smaller data sets and with truly out-of-sample prediction; however, it is computationally more expensive and may be difficult to scale in large data sets. The image partitioning approach is less computationally intensive and allows for inference by identifying areas that distinguish each individual, and generates a unique walking ``fingerprint" \cite{koffman_fingerprinting_2023}. However, image partitioning seems to perform worse in smaller data sets and with out-of-sample prediction. Furthermore, it requires decisions about which lags and how many lags to use and requires variable selection to avoid overfitting. In even larger data sets, the logistic regression approach may be preferable, as it takes only minutes to run compared to several hours for the machine learning and functional regression methods; the functional regression also requires substantial memory. 
+
+
+
+Few existing methods for identifying individuals from their walking pattern report recognition rate or accuracy of their algorithms. However, our model outperforms Gafurov et al. ($86.3$\% accuracy in a study of $50$ individuals)  \cite{gafurov2007gait} and is comparable to Pan et al ($96.7$\% accuracy in a study of $30$ individuals)\cite{pan_accelerometer-based_2009} and Zhang et al ($95.8$\% accuracy in the ZJU data used here) \cite{zhang_accelerometer-based_2015}. However, both Pan et. al. and Zhang et. al. used data from five locations (wrist, upper arm, hip, knee, and ankle), while we use only data from the wrist. The most direct comparison in the literature to our approach is Zhang et. al.'s reported identification rate of 56.4\% using just data collected at the wrist from the ZJU data. Ideally, we would compare existing methods to our own on the same data, but to our knowledge few of the existing methods are open source. While Zhang et. al provide their MATLAB implementation, their analysis is not easily generalizable to other datasets, and we are not able to directly compare their results to ours in the IU data.
+
+
+The prediction was highly affected by the difficulty of the task. Indeed, predicting individuals from a walking session weeks before the current walking session was more difficult, because the time gap between the collection of the first and second session presents many challenges, including changes in clothing or footwear, actual changes in gait, and the changes in the placement of the accelerometer, i.e. the ``marker replacement issue" \cite{Telschow2020}. In spite of these challenges, methods performed very well; however, future directions could include employing methods to solve the problems presented by time gaps in data collection and pinpoint changes in gait that are not due to changes in clothing or device location but are due to true changes in gait \cite{Telschow2023}.
+
+Future directions also entail deploying these methods in more diverse, larger, and free-living datasets. In datasets with multiple days of data, such as the National Health and Nutrition Examination Survey (NHANES) \cite{nhanes}, we could investigate whether the first day of data could correctly predict an individual's identity when tested on the last day of data. Similarity between fingerprints could be explored on the basis of sex or age. Finally, models could be trained on data from individuals in multiple studies, and tested on data in only one study.
+
+ 
+However, there are still limitations to this data and study. The data in both applications were collected in semi-controlled environments and labeled as walking. It remains unclear how these methods would perform on free-living data and on more heterogeneous populations.  Finally, our modeling approach for both methods requires choosing a unit for segmentation of the raw time series; in our case, we chose one second. Future analyses could explore the effect of using larger or smaller intervals. 
+
+Finally, we promised that we would solve the puzzle from Figure~\ref{fig:problem_description} at the end of the paper. Data from subjects 43 and 118 in the ZJU data are displayed in the second and fourth row of the right-hand panel, respectively, while the data in the first and third rows belong to subjects 28 and 80. 
+
+ 
+
+%%%%%%%%%%%%%%
+
+
+\clearpage
+\section{Appendix: Machine learning model performance}
+
+
+\begin{table*}[ht]
+\centering
+\resizebox{\ifdim\width>\linewidth\linewidth\else\width\fi}{!}{
+\begin{tabular}{lllllll}
+\toprule
+\multicolumn{1}{c}{ } & \multicolumn{2}{c}{IU} & \multicolumn{2}{c}{ZJU S1} & \multicolumn{2}{c}{ZJU S1S2} \\
+\cmidrule(l{3pt}r{3pt}){2-3} \cmidrule(l{3pt}r{3pt}){4-5} \cmidrule(l{3pt}r{3pt}){6-7}
+Model & $n$ Correct & \% Correct & $n$ Correct & \% Correct & $n$ Correct & \% Correct\\
+\midrule
+Penalized logistic regression & 32 & 1.00 & 137 & 0.90 & 88 & 0.58\\
+K-nearest neighbors & 32 & 1.00 & 142 & 0.93 & 85 & 0.56\\
+Neural network & 32 & 1.00 & 141 & 0.92 & 86 & 0.56\\
+Polynomial-basis SVM & 32 & 1.00 & 137 & 0.90 & 85 & 0.56\\
+Bayesian Additive Regression Trees (BART) & 32 & 1.00 & 135 & 0.88 & 83 & 0.54\\
+%\addlinespace
+Boosted Trees & 32 & 1.00 & 122 & 0.80 & 81 & 0.53\\
+Radial-basis SVM & 32 & 1.00 & 125 & 0.82 & 80 & 0.52\\
+Random forest & 32 & 1.00 & 138 & 0.90 & 78 & 0.51\\
+Flexible Discriminant Analysis & 32 & 1.00 & 112 & 0.73 & 59 & 0.39\\
+Naive Bayes & 26 & 0.81 & 97 & 0.63 & 52 & 0.34\\
+\bottomrule
+\end{tabular}}
+\caption{Rank 1 accuracy and number of individuals correctly predicted for all machine learning models across the three prediction tasks. All models perform equivalently in IU except for naive Bayes. K-nearest neighbors performs best in ZJUS1 and penalized logistic regression performs best in ZJUS1S2. Combining all three tasks, k-nearest neighbors and neural network correctly predict the highest number of individuals.}
+\end{table*}
+
+
+
+\section{Appendix: Comparison of number of lags used in ML models}
+\begin{table*}[ht]
+\centering
+\resizebox{\ifdim\width>\linewidth\linewidth\else\width\fi}{!}{
+\begin{tabular}{lllllllll}
+\toprule
+\multicolumn{1}{c}{ } & \multicolumn{4}{c}{ZJU S1} & \multicolumn{4}{c}{ZJU S1S2} \\
+\cmidrule(l{3pt}r{3pt}){2-5} \cmidrule(l{3pt}r{3pt}){6-9}
+\multicolumn{1}{c}{ } & \multicolumn{2}{c}{3 lags} & \multicolumn{2}{c}{6 lags} & \multicolumn{2}{c}{3 lags} & \multicolumn{2}{c}{6 lags} \\
+\cmidrule(l{3pt}r{3pt}){2-3} \cmidrule(l{3pt}r{3pt}){4-5} \cmidrule(l{3pt}r{3pt}){6-7} \cmidrule(l{3pt}r{3pt}){8-9}
+Model & $n$ Correct & \% Correct & $n$ Correct & \% Correct & $n$ Correct & \% Correct & $n$ Correct & \% Correct\\
+\midrule
+K-nearest neighbors & 142 & 0.93 & 143 & 0.93 & 85 & 0.56 & 69 & 0.45\\
+Neural network & 141 & 0.92 & 145 & 0.95 & 86 & 0.56 & 74 & 0.48\\
+Polynomial-basis SVM & 137 & 0.90 & 141 & 0.92 & 85 & 0.56 & 75 & 0.49\\
+Penalized logistic regression & 137 & 0.90 & 143 & 0.93 & 88 & 0.58 & 73 & 0.48\\
+Random forest & 138 & 0.90 & 137 & 0.90 & 78 & 0.51 & 67 & 0.44\\
+Bayesian Additive Regression Trees & 135 & 0.88 & 136 & 0.89 & 83 & 0.54 & 69 & 0.45\\
+Radial-basis SVM & 125 & 0.82 & 133 & 0.87 & 80 & 0.52 & 71 & 0.46\\
+Boosted Tree & 122 & 0.80 & 131 & 0.86 & 81 & 0.53 & 73 & 0.48\\
+Flexible Discriminant Analysis & 112 & 0.73 & 112 & 0.73 & 59 & 0.39 & 49 & 0.32\\
+Naive Bayes & 97 & 0.63 & 101 & 0.66 & 52 & 0.34 & 43 & 0.28\\
+\bottomrule
+\end{tabular}}
+\caption{Comparison of rank 1 accuracy and number of individuals correctly predicted for machine learning models using three lags $u = \{15, 30, 45\}$ compared to six lags $u = \{15, 30, 45, 60, 75, 90\}$.} 
+\end{table*}
+
+
+
+\clearpage
+
+\section{Appendix: Preparing raw accelerometry data for functional regression}\label{appx1}
+
+\noindent We use the same notation as in the manuscript: $v_{ij}(s)$ is the vector magnitude of acceleration in gravitational units (g) at second $j$ for subject $i$. We note that the trivariate functional regression model can be fit with the single line: 
+
+\begin{minted}[bgcolor=LightGray]{R}
+gam(Y ~ te(D_i, S_i, U_i, k = c(5, 5, 5), by = lmat),
+family=binomial, 
+method="REML")
+\end{minted}
+
+\noindent Here we describe how to manipulate the raw time series data into the format such that this line of code can be deployed.
+
+
+
+ \bigskip 
+ 
+For the functional regression approach, we first obtain the empirical complete joint distribution of acceleration and lag acceleration for each subject, then manipulate the distribution into three matrices for each subject, which are used in the functional regression. Recall that $S$ denotes the interval length used to obtain the joint distribution, in our case we let $S = 100$ centiseconds, and $J_i$ is the number of seconds observed for individual $i$. Then $\mathit{D}_i, \mathit{S}_i, \mathit{U}_i \in \mathbb{R}^{J_i\times S(S-1)/2}$. Conceptually, one can think of $\mathit{U}_i$ as a matrix of lags, $\mathit{S}_i$ as a matrix of accelerations, and $\mathit{D}_i$ as a matrix of lagged accelerations. 
+Let $\mathbf{1}_n \in \mathbb{R}^{1\times n}$ be the row vector of all ones. Then:
+
+\begin{align*}
+   \mathit{D}_i = 
+   \begin{bmatrix}
+   v_{i1}(1) \mathbf{1}_{99} &  v_{i1}(2) \mathbf{1}_{98} &\dots &  v_{i1}(99) \mathbf{1}_{1}  \\
+    v_{i2}(1) \mathbf{1}_{99} &  v_{i2}(2) \mathbf{1}_{98} &\dots &  v_{i2}(99) \mathbf{1}_{1}  \\
+    \vdots & \vdots & \ddots &\vdots \\
+    v_{iJ_i}(1) \mathbf{1}_{99} &  v_{iJ_i}(2) \mathbf{1}_{98} &\dots &  v_{iJ_i}(99) \mathbf{1}_{1} 
+    \end{bmatrix}
+\end{align*}
+
+\noindent Let $\mathbf{v}_{ij}(k:l) \in \mathbb{R}^{1\times (l-k+1)}$ be a row vector of observations for subject $i$ at second $j$ for centiseconds $k$ through $l$, where $l \geq k$. Then: 
+\begin{align*}
+    \mathit{S}_i = \begin{bmatrix}
+        \mathbf{v}_{i1}(2:100) & \mathbf{v}_{i1}(3:100) & \dots & \mathbf{v}_{i1}(100:100)\\ 
+         \mathbf{v}_{i2}(2:100) & \mathbf{v}_{i2}(3:100) & \dots & \mathbf{v}_{i2}(100:100)\\ 
+        \vdots & \vdots & \ddots & \vdots \\ 
+       \mathbf{v}_{iJ_i}(2:100) & \mathbf{v}_{iJ_i}(3:100) & \dots & \mathbf{v}_{iJ_i}(100:100)\\ 
+    \end{bmatrix}
+\end{align*}
+Finally, let $a:b$ for $a,b\in \mathbb{Z}, a < b$ denote the sequence  $a,a+1, a+2, \dots,  b-1, b $. Then: 
+\begin{align*}
+   \mathit{U}_i  = \mathbf{1}_{J_i\times 1}
+   \begin{bmatrix}
+       1:99 & 1:98 & 1:97 & \dots & 1:2 & 1 
+   \end{bmatrix}
+   \end{align*}
+
+\subsection{Toy Example}
+
+Suppose we have a situation with interval length $S = 4$, and we observe just two intervals per subject, i.e. $J_i = 2 \forall i$.  Then the raw data is $v_{ij}(k) \text{ for } j = 1,2; k = 1, 2, 3, 4$. Then the matrices for subject $i$ are as follows: 
+
+\begin{align*}
+    \mathit{D}_i = 
+   \begin{bmatrix}
+   v_{i 1}(1)  & v_{i1}(1)& v_{i 1}(1)  & v_{i 1}(2) & v_{i 1}(2) & v_{i 1}(3) \\
+      v_{i 2}(1)  & v_{i 2}(1)& v_{i 2}(1)  & v_{i 2}(2) & v_{i 2}(2) & v_{i 2}(3) \\
+    \end{bmatrix}
+\end{align*}
+
+
+\begin{align*}
+    \mathit{S}_i = 
+   \begin{bmatrix}
+   v_{i 1}(2)  & v_{i 1}(3)& v_{i 1}(4)  & v_{i 1}(3) & v_{i 1}(4) & v_{i 1}(4) \\
+      v_{i 2}(2)  & v_{i 2}(3)& v_{i 2}(4)  & v_{i 2}(3) & v_{i 2}(4) & v_{i 2}(4) \\
+    \end{bmatrix}
+\end{align*}
+
+\begin{align*}
+    \mathit{U}_i = 
+   \begin{bmatrix}
+   1 & 2 & 3 & 1 & 2 & 1\\
+     1 & 2 & 3 & 1 & 2 & 1\\
+    \end{bmatrix}
+\end{align*}
+
+\subsection{Fitting the model}
+The remaining arguments in the {\ttfamily mgcv::gam} syntax are $\mathbf{Y}$ and {\ttfamily lmat}. $\mathbf{Y}$ is a column vector of ones and zeroes, where $Y_{ij}^{i_0}=1$ if $i=i_0$ and $0$. 
+{\ttfamily lmat} is a matrix of the same dimension as $\mathit{D}_i, \mathit{S}_i, \text{and } \mathit{U}_i$ and contains the weights of the linear functionals of the smooth terms; in our case we use equal weights, so the $(i, j)$ entry of {\ttfamily lmat} is $\frac{1}{S(S-1)/2}$ for all $i$ and $j$. 
+
+The call to {\ttfamily te()} specifies that we want to form a tensor product smooth of the variables supplied as the first unnamed arguments to the function. Adding {\ttfamily method="REML"} to the function call specifies that smoothing parameter selection is done using restricted maximum likelihood. Because the basis is constructed using a tensor product smooth of three variables, there are three smoothing parameters which must be selected by the model.
+
+The subject-specific matrices and {\ttfamily lmat} may be put together in a data frame using the \texttt{AsIs} function in R, and then the functional regression can be fit as described in the manuscript and code.
+
+
+\textbf{Answer to the riddle}:
+Data from subjects 43 and 118 in the ZJU data are displayed in the second and fourth row of the right-hand panel, respectively, while the data in the first and third rows belong to subjects 28 and 80.
+
+\section{Data Availability}
+The IU data is available for download at \url{https://physionet.org/content/accelerometry-walk-climb-drive/1.0.0/}. The ZJU data is available for download after signing the data use agreement at \url{https://www.ytzhang.net/datasets/zju-gaitacc/}. 
+
+\section{Code Availability}
+
+All code to processt the data and reproduce the analysis is available  at \url{https://github.com/lilykoff/ml_walking_fingerprint}
+
+

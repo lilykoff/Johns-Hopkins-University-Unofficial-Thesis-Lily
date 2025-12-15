@@ -1,0 +1,58 @@
+\chapter{Introduction}
+\label{chap:intro}
+
+
+
+Physical activity is one of the strongest predictors of all-cause mortality \cite{pa_imp}. Lack of physical activity is a leading risk factor for non-communicable diseases, and contributes to higher morbidity and mortality in individuals with such diseases. Physical activity is modifiable risk factor; therefore, accurate measurement of physical activity is crucial for population health, epidemiology, and clinical applications. 
+
+Traditionally, physical activity has been measured with questionnaires and surveys, which are prone to recall bias, response bias, and measurement error \cite{self_report}. Wearable accelerometers, on the other hand, provide continuous, granular, and objective measurements of human movement. Improvements in technology have led to the widespread use of accelerometers in clinical and epidemiological studies, including large, nationally representative surveys like the National Health and Nutrition Examination Survey (NHANES) and the UK Biobank \cite{Karas2019}. While wearable accelerometers have the potential to provide detailed data about human movement in free-living environments, accelerometry data also present challenges for researchers; chiefly, computational challenges arising from the complexity and scale of the data, sensitivity to algorithm choice and processing steps, and lack of reproducibility and standardization across devices, studies, and algorithms. 
+
+
+Accelerometry data are typically summarized at the minute, day, or subject level. However, higher resolution (sub-second level) data may provide richer information about, for example, gait dynamics or features. Furthermore, higher-level summaries are susceptible to differences in devices and algorithms, and there is a lack of consensus on the best summaries to use. Thus there is a need for methods for processing raw accelerometry that are interpretable, reproducible, and scalable to datasets with thousands of individuals. 
+
+The following thesis is comprised of three chapters that each advance statistical methodology for processing and interpreting data from wearable accelerometers. In the first chapter, I develop a method for identifying individuals based on wrist-worn accelerometry data collected during walking (``walking fingerprinting''). In the second chapter, I extend and scale the fingerprinting method to the NHANES dataset. In the third chapter, I develop the first method for function on scalar regression (FoSR) under complex survey designs. FoSR is used to model the relationship between a functional outcome (e.g. physical activity measured by a wearable accelerometer) and scalar covariate (e.g. sex, age). Since accelerometry data is often collected in complex survey settings, the survey FoSR method is crucial for accurate statistical estimation and inference with accelerometry data. I will briefly summarize each chapter below. 
+
+\subsection{Walking fingerprinting}
+I began with a simple question: can accelerometry data collected during walking be used to identify individuals? The question of whether an individual can be identified from their walking pattern is not new; however, existing methods mostly used data from video or underfoot force sensors. The few methods that relied on accelerometry data required step segmentation (delineating the start and end of each step), which is error-prone and computationally inefficient \cite{connor_biometric_2018}.
+
+Using publicly available data from two different datasets, I developed an open-source method for identification that does not rely on stride segmentation. The method derives predictors from summaries of the distribution of acceleration and its lags which can then be used in any classification algorithm (e.g. logistic regression, random forest, neural net). I also developed a separate functional regression approach that utilizes the entire joint distribution of the acceleration and its lags. 
+
+I deployed the methods in two publicly available datasets of wrist-worn accelerometry data from $n=30$ and $n=153$, with on average $6$ and $1.5$ minutes of walking per person, respectively. In the smaller dataset, the methods achieved 100\% identification accuracy. In the larger dataset, accuracy ranged from 41 to 100\%, depending on the method and setting.
+
+\subsection{Walking fingerprinting in free-living data}
+After developing and deploying the walking fingerprinting method in data where I knew individuals were walking, I wanted to deploy the approach in the free-living accelerometry data collected by NHANES, where over $15{,}000$ individuals wore a wrist-worn accelerometer continuously for up to seven full days. This led me down a path of exploring step counting and walking identification methods for raw accelerometry data, and I obtained minute-level step counts from several different algorithms for all individuals in NHANES.
+
+I then used acceleromatry data from minutes identified as walking to perform walking fingerprinting. The much larger dataset required computational and methodological innovation, including fitting models in batches and utilizing weighting and oversampling to remedy class imbalance in the one vs. rest classification models. Ultimately, the best-performing model was able to achieve 41\% rank-1 accuracy in all $14{,}000$ individuals, using just three minutes of data for training and testing per person. 
+
+
+\subsection{Complex survey function on scalar regression}
+After calculating minute-level step counts from NHANES, I became interested in modeling steps as a function of scalar covariates, e.g. sex, to determine if stepping patterns differed between different groups. The method used to implement this analysis is function on scalar regression (FoSR). However, unlike for standard (non-functional) regression, there is no existing method to account for survey structure in FoSR. Survey methods adjust for unequal selection probability and correlation between individuals in the same geographic strata and primary sampling unit (PSU), both of which are features of large surveys like NHANES. Failure to account for these features can lead to bias in estimation and underestimation of variance. 
+
+To address this issue, I developed the first method for complex survey FoSR. The method incorporates survey adjustments into both the estimation and inference steps of the Fast Univariate Inference (FUI) method for FoSR. I developed a first-of-its-kind functional data simulation to test the method and demonstrate its accuracy and necessity in certain situations, and an R package to facilitate usage across the research community. 
+% add citations! 
+\begin{comment}
+\subsection{Open-source step counting in NHANES 2011-2014}
+I wanted to deploy the walking fingerprinting approach on the raw accelerometry data from NHANES. In order to do so, I needed to identify areas of walking in the free-living accelerometry data. This led me down a path of exploring methods for step counting and walking identification for raw accelerometry data. 
+We applied six open source step counting algorithms on the NHANES data, and found that step estimates varied widely between algorithms. The algorithm that performed best in data with labeled step counts (cite) estimated xx. 
+
+While absolute estimates differed, association with mortality was strong across all methods, indicating that steps confer information about physical activity perhaps more powerful than other accelerometry PA measures. xx need for standardization. 
+\subsection{Walking fingerprinting in NHANES}
+After exploring methods for walking identification in NHANES, I had obtained walking segmentations from several different algorithms in the NHANES dataset. This allowed for walking fingerprinting. Using the most specific algorithm 
+\end{comment} 
+
+\begin{comment}
+
+
+Clearly outline your three studies, tying them to overarching goals:
+
+Methodological innovation (functional regression + ML for gait fingerprinting).
+
+Public health impact (NHANES step counting and mortality prediction).
+
+Scalability (large-scale fingerprinting in a national survey).
+
+Emphasize the unifying theme: advancing statistical methodology to better extract, interpret, and deploy wearable accelerometry data.
+\end{comment}
+    
+\subsection{Walking fingerprinting in NHANES}
+\subsection{Complex survey function on scalar regression}

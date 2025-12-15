@@ -1,0 +1,387 @@
+
+%  put the summary for your paper here
+
+\chapter{Paper 3: Complex Survey Function on Scalar Regression}
+\label{chap:paper3}
+
+\begin{abstract}
+Large health surveys increasingly collect high-dimensional functional data from wearable devices, and function on scalar regression (FoSR) is often used to quantify the relationship between these functional outcomes and scalar covariates such as age and sex. However, existing methods for FoSR fail to account for complex survey design. We introduce inferential methods for FoSR for studies with complex survey designs. The method combines fast univariate inference (FUI) developed for functional data outcomes and survey sampling inferential methods developed for scalar outcomes. Our approach consists of three steps: (1) fit survey weighted GLMs at each point along the functional domain, (2) smooth coefficients along the functional domain, and (3) use balanced repeated replication (BRR) or the Rao-Wu-Yue-Beaumont (RWYB) bootstrap to obtain pointwise and joint confidence bands for the functional coefficients. The method is motivated by association studies between continuous physical activity data and covariates collected in the National Health and Nutrition Examination Survey (NHANES). A first-of-its-kind analytical simulation study and empirical simulation using the NHANES data demonstrates that our method performs better than existing methods that do not account for the survey structure. Finally, application of the method in NHANES shows the practical implications of accounting for survey structure. The method is implemented in the R package \texttt{svyfosr}. 
+\end{abstract}
+%  Please place your key words in alphabetical order, separated
+%  by semicolons, with the first letter of the first word capitalized,
+%  and a period at the end of the list.
+%
+
+
+\section{Introduction}
+\label{s:intro}
+% why do we have survey data? 
+Large epidemiological studies, such as the National Health and Nutrition Examination Survey (NHANES) \citep{NHANES} and the National Health and Aging Trends Study (NHATS) \citep{NHATS}, employ complex survey designs. These designs involve multistage stratified sampling because simple random sampling from a large geographic area is impractical and prohibitively expensive \citep{surveys_intro}. When survey design is properly accounted for in statistical analysis, conclusions from a survey can be generalized to the target population. However, failing to correctly account for the survey design can lead to estimation bias  and underestimation of variability. Accounting for survey design involves handling unequal sampling probabilities (via participant weights) and the correlation between individuals within the same geographic area \citep{nhanes_guidelines_2018}. 
+
+% functional data 
+Large studies increasingly collect high dimensional data, such as physical activity measurements from wearable devices. These measurements can be summarized and analyzed at various temporal resolutions: sub-second, second, minute, or day level. Functional data analysis techniques, including function on scalar regression (FoSR), are often used to quantify the relationship between physical activity patterns (functional responses) and scalar covariates such as age and sex \citep{fda_book}. Recently, \cite{cui_fui} proposed Fast Univariate Inference (FUI), a fast and computationally efficient method for FoSR. However, FUI and other existing methods for FoSR (e.g., penalized splines \citep{FAMM}) do not allow for incorporation of complex survey design information. Previous work on integrating survey design with functional data analysis has focused on estimation of mean or median curves \citep{means2, means3, medians} and scalar on function regression \citep{parker_bayesian_2023,survey_sofr}. As with standard (non-functional) models, failing to account for survey structure with functional data can lead to biased estimates,  underestimated uncertainty, and non-generalizable results.
+
+% survey methods in "regular" regression 
+Substantial literature and software exists for estimation and inference under complex survey designs in regression with scalar outcomes \citep{lumley_software, Lumley2017, survey_reg}. In this paper we extend the foundational inferential principles of survey sampling for scalar outcomes to functional outcomes. While the problem is complex, its solution consists of relatively simple, familiar inferential steps. First, we fit a separate generalized linear model (GLM) at each point along the functional domain. Therefore, the theoretical and practical properties of the estimators are preserved at every point in the functional domain, including marginal consistency of point estimators and nominal coverage of pointwise confidence intervals.
+Second, we use smoothing along the functional domain \citep{Crainiceanu_2012,fda_book,cui_fui,Park_Staicu_2018} to obtain the smooth estimators. Third, we use survey-aware replication methods for inference: balanced repeated replication (BRR) \citep{BRR} and the Rao-Wu-Yue-Beaumont (RWYB) bootstrap \citep{RWYB}; see our \texttt{R} \citep{R} package \texttt{svyfosr} for implementation of these methods. This approach - relying solely on marginal regressions for estimation and resampling techniques for inference - allows for the construction of pointwise and correlation and multiplicity adjusted (CMA) confidence intervals \citep{fda_book} for the functional estimators. The combination of these ideas leads to a highly computationally efficient algorithm. To validate our approach, we use two innovative simulations. In the first, we design a novel analytical simulation to mimic two-stage stratified sampling with both correlated functional outcomes and informative sampling. In the second, we design an empirical simulation by informatively sampling functional outcomes from NHANES. Finally, we illustrate the practical implications of accounting for survey structure with an analysis of physical activity data in NHANES 2011-2012 and 2013-2014 waves. 
+ 
+\section{Methods}\label{sec:meth}
+\subsection{Review of FUI}\label{subsec:fui}
+
+\begin{comment} 
+FUI was proposed for function on scalar regression with longitudinal functional data. Here we provide a short summary of the approach and data structure. Let $Y_{ij}(s)$ denote the functional outcome for study participant $i$, $i= 1, \dots, I$ at visit $j$, $j = 1, \dots, J_i$ and sampling point $s$ in the functional domain $s \in \{s_1, s_2, \dots, s_L\}$. In the NHANES physical activity data, $Y_{ij}(s)$ denotes the physical activity for participant $i$ at day of observation $j$ and minute of the day $s$. We will assume that $Y_{ij}(s)\sim{\rm EF}\{\eta_{ij}(s_l)\}$, where ${\rm EF}(\cdot)$ denotes an exponential family of distributions, and $\eta_{ij}(s_l)$ is its linear predictor. Let $\mathbf{X}_{ij}$ be a $P$-dimensional vector of fixed effects and $\mathbf{Z}_{ij}$ a design vector for functional random effects. The longitudinal or multilevel FoSR model \citep{mfpca,lfpca,ivanescu_2015,Morris_Carroll_2006,Morris_2008,FAMM,sfpca} is
+\begin{equation}
+h\{E[Y_{ij}(s_l)]\}=\mathbf{X}_{ij}\boldsymbol{\beta}(s_l)+\mathbf{Z}_{ij}\mathbf{u}_{i}(s_l)\;,
+\label{eq:FUI}
+\end{equation}
+where $h(\cdot)$ is the link function, $\boldsymbol{\beta}(s_l)$ are the domain-varying fixed effects of the covariates and $\mathbf{u}_{i}(s_l)$ are the functional random effects capturing the correlation of the linear predictors after accounting for the fixed effects. For example, in a random intercept/random slope context $\mathbf{Z}_{ij}=(1,T_{ij})$, where $T_{ij}$ are the times when data are sampled, though any mixed effects model structure could be considered. 
+
+FUI starts with fitting $L$ separate GLMMs, one for each location $s_l$ in the functional domain. Fitting these models does not make any assumption about the structure of the random effects $\mathbf{u}_{i}(s_l)$ as a function of $s_l$, though it accounts for the random effects structure as a function of $i$ (e.g., subjects) and $j$ (e.g., visit).  The second step of FUI is to smooth the estimated fixed effects, $\boldsymbol{\beta}(\cdot)$, along the functional domain under the independence of residuals assumption. The third step is to use a bootstrap of study participants to construct pointwise and joint confidence intervals for the smoothed estimators of $\boldsymbol{\beta}(\cdot)$.  The method works because: (1) the point estimators are consistent under weak standard assumptions; and (2) the bootstrap of subjects accounts for the variability of the estimators, the procedure, and the within-person correlation.
+If the functional data are not repeated at the subject level (i.e., not longitudinal or multilevel), FUI is conducted in the same way by replacing the GLMM with a standard GLM. Due to the complexity of survey weighting in the longitudinal setting \citep{survey_mixed}, we focus on survey methods for function on scalar regression with only one function per participant in this paper. The single level FoSR model is
+\begin{equation}
+h\{E[Y_{i}(s_l)]\}=\mathbf{X}_{i}\boldsymbol{\beta}(s_l)\;,
+\label{eq:FUI_sl}
+\end{equation}
+Where $h(\cdot)$ is the link function and $\boldsymbol{\beta}(s_l)$ are the domain-varying fixed effects of the covariates.
+
+\end{comment} 
+
+FUI was proposed for function on scalar regression with longitudinal functional data \citep{mfpca,lfpca,ivanescu_2015,Morris_Carroll_2006,Morris_2008,FAMM,sfpca}. Due to the complexity of survey weighting in the longitudinal setting \citep{survey_mixed}, we focus on survey methods for function on scalar regression with only one function per participant in this paper. In Web Appendix A, we include a simulation demonstrating the properties of FUI in the single level setting. Here, we provide a short summary of the approach and data structure. Let $Y_{i}(s)$ denote the functional outcome for study participant $i$, $i= 1, \dots, I$ at sampling point $s$ in the functional domain $s \in \{s_1, s_2, \dots, s_L\}$. In the NHANES physical activity data, $Y_{i}(s)$ denotes the mean physical activity for participant $i$ at minute $s$. We will assume that $Y_{i}(s)\sim{\rm EF}\{\eta_{i}(s_l)\}$, where ${\rm EF}(\cdot)$ denotes an exponential family of distributions, and $\eta_{i}(s_l)$ is its linear predictor. Let $\mathbf{X}_{i}$ be a $P$-dimensional vector of fixed effects. The single level FoSR model is
+\begin{equation}
+h\{E[Y_{i}(s_l)]\}=\mathbf{X}_{i}\boldsymbol{\beta}(s_l)\;,
+\label{eq:FUI_sl}
+\end{equation}
+where $h(\cdot)$ is the link function and $\boldsymbol{\beta}(s_l)$ are the domain-varying fixed effects of the covariates.
+
+FUI starts with fitting $L$ separate GLMs, one for each location $s_l$ in the functional domain. Fitting these models does not make any assumption about correlation across $s_l$. The second step of FUI is to smooth the estimated fixed effects, $\boldsymbol{\beta}(\cdot)$, along the functional domain under the independence of residuals assumption. The third step is to use a bootstrap sample of study participants to construct pointwise and joint confidence intervals for the smoothed estimators of $\boldsymbol{\beta}(\cdot)$.  The method works because: (1) the point estimators are consistent under weak standard assumptions; and (2) the bootstrap of subjects accounts for the variability of the estimators, the procedure, and the within-person correlation.
+
+
+The goal of this paper is to extend FUI to the case when data are collected using a known survey sampling procedure instead of an assumed independent sample. There are two crucial components impacted by this change that need to be addressed for a successful extension of the method. First, a survey-weighted procedure must be used for the GLM portion of the algorithm. This implementation is relatively easy to do because there is stable software for survey-weighted GLMs. Second, the subject-specific bootstrap approach needs to be adjusted to account for the actual sampling procedure from the target population. We now provide the details of this combined approach.
+
+\subsection{Function on scalar regression for survey data}\label{subsec:estimation}
+We introduce notation for a two-stage survey design where individuals belong to both a stratum (larger geographic location) and primary sampling unit (PSU; a smaller area within the stratum, such as a zip code). PSUs are sometimes called clusters; in this paper we use PSU. Within each PSU, participants may be sampled either at random or with probabilities that are a function of certain characteristics. We discuss this survey design, as it reflects our data example, but methods can be extended to other, more complex designs.
+
+Assume that the study contains $H$ strata and $C_h$ PSUs within each stratum, $h=1,\ldots,H$. $C_h$ is typically the same for all strata, but the index $h$ indicates that this is not required.  Individual observations are indexed by $(h,c,i)$, that is stratum $h$, PSU $c$ and individual $i$. The total number of individuals within each stratum-PSU combination is $I_{h,c}$ and the total number of individuals in the sample is $I = \sum_{h=1}^H\sum_{c=1}^{C_h}I_{h,c}$.
+
+The data for a single participant is the functional outcome $Y_{hci}(s)$, a $P$-dimensional vector of scalar fixed effects $\mathbf{x}_{hci}$, and the scalar survey weight $w_{hci}$. The observed data are then: $(\mathbf{Y}, \mathbf{X}, \mathbf{w}) = \big\{(Y_{hci}(s), \mathbf{x}_{hci}, w_{hci}): h = 1, \dots, H; c = 1, \dots, C_h; i = 1, \dots, I; s \in \{s_1, \dots, s_L\}\big\}$. The survey weights are the inverse probabilities of selection from the population; they can be thought of as the number of people in the population represented by that study participant. The sum of all weights $\sum_{h=1}^H\sum_{c=1}^{C_h}\sum_{i=1}^{I_{c,h}}w_{hci}=N$, the total population size in the target population (e.g., total US population). Recall that $I<<N$, as $w_{hci}>>1$ for all $h$, $c$, and $i$.
+
+
+\subsection{Function on scalar inference}\label{subsec:inference}
+The target of inference is $\beta_p(s)$, for $p=1,\ldots,P$. 
+As described in Section~\ref{subsec:fui}, the FUI approach provides initial estimators $\widehat{\beta}_p(s)$ by fitting model~\eqref{eq:FUI_sl} at every $s$ using survey-weighted GLM \citep{Lumley2017,lumley_software, SAS2023, Stata2025}. The resulting estimators are then smoothed as a function of $s$ using any smoothing procedure \citep{fda_book,Crainiceanu_2012};  we use generalized additive models [GAMs] based on penalized splines \citep{wahba1990spline, Wood2017, Ruppert2003, eilers1996flexible, osullivan}. This procedure provides point estimators of the smoothed functional coefficients and confidence intervals under the assumption of independence of residuals. Because residuals are not independent, we only use the smooth point estimators and not the confidence intervals, which do not have the correct coverage probability. Instead, we use the smooth estimators and a bootstrap of study participants to obtain pointwise and CMA confidence intervals. Because study participants are not sampled independently in our analysis, we will use resampling techniques inspired by the survey sampling literature \citep{BRR,RWYB, raowuyue1992} for non-functional analyses. Thus, we take advantage of decades of research to conduct resampling and assess the variability of functional estimators. We now provide details of the exact implementation of these resampling techniques. All  techniques refer to how to resample the $I$ study participants from the observed data. Standard bootstrap refers to independent, equal probability sample of the index set $1,\ldots,I$ with replacement. We now describe three well-established methods in the survey sampling literature.
+
+
+\subsubsection{Survey weighted bootstrap}\label{subsubsec:survey}
+The survey-weighted bootstrap is defined as random sampling with replacement of the index set $1, \dots, I$ where each individual's probability of selection is $\pi_{hci} \propto w_{hci}$, where $w_{hci}$ is the individual's survey weight. This can be implemented directly in most analytic software.
+
+\subsubsection{Balanced Repeated Replication}\label{subsubsec:BRR}
+Balanced Repeated Replication (BRR) \citep{BRR} is a resampling method that requires an even number of PSUs per stratum (the structure used in NHANES and NHATS). The BRR procedure is as follows: (1) randomly sample half of the PSUs from each stratum; (2) form the data set by combining all observations from all participants in the selected PSUs; (3) for all selected participants, double the survey weights; and (4) fit the model using these adjusted weights. The BRR procedure is then repeated $B$ times.
+
+
+\subsubsection{Rao-Wu-Yue-Beaumont Bootstrap}\label{subsubsec:RWYB}
+The Rao-Wu-Yue-Beaumont (RWYB) \citep{RWYB} is a bootstrap method for any multistage sampling design provided that selection probabilities are available at each stage of sampling. It extends the Rao-Wu-Yue method \citep{raowuyue1992} to account for settings where PSUs are sampled without replacement within strata. Here we use the method as described by the authors and implemented in the {\ttfamily R} \citep{R} function {\ttfamily svrep::make\_rwyb\_bootstrap\_weights} \citep{svrep}. Though RWYB is referred to as a bootstrap approach, the method resembles reweighting: the result is $B$ sets of weights for the dataset. Survey-weighted regression is run with each set of weights and results are then aggregated across the $B$ sets to conduct inference. For completeness, we provide the main steps of the procedure and refer to the original paper \citep{RWYB} for additional technical details. The algorithm steps are: (1) generate first stage bootstrap adjustments for all PSUs; (2) generate the second-stage adjustments to account for the probability of selecting the higher-level unit in the previous stage; and (3) obtain the overall bootstrap weights by multiplying the original weight by the first and second stage adjustments. The approach can be used  for different sampling schemes, but here we focus on sampling without replacement with unequal probabilities at the first stage and Poisson sampling at the second stage, an approximation of the NHANES structure. 
+
+\noindent The stage one bootstrap adjustments are: 
+$a_{1c} = 1 - \sqrt{\frac{m_1(1-\pi_{1c})}{n_1-1}} +\sqrt{\frac{m_1(1-\pi_{1c})}{n_1-1}} \frac{n_1}{m_1}m^*_{1c} \;,$ where $n_1$ is the number of PSUs sampled without replacement in the stratum (determined by the survey design), $m_1$ is the number of bootstrap draws used to reselect the PSUs, and  $\pi_{1c}$ is the probability of selecting PSU $c$. The probability of selecting PSU $c$ depends on the type of sampling used. Here $m^*_{1c}$ is a random variable  equal to the number of times PSU $c$ is chosen in $m_1$ independent trials, where each $c$ has a constant probability of being chosen at each draw equal to $\frac{1}{n_1}$ (i.e. $m^*_{1c}\sim\mathrm{Multinom}(m_1, 1/n_1)$).
+Each calculation is nested within a stratum and thus all parameters are indexed by $h$, but for simplicity we focus on just one stratum. The authors further propose to calibrate the first stage bootstrap weights to 
+$a^{\rm cal}_{1c} = a_{1c}\frac{n_1}{\sum_{l}a_{1l}}$,
+which ensures that  $n_1=\sum_{c}a^{\rm cal}_{1c}$.
+The second-stage preliminary bootstrap adjustments are $a_{2ci} = 1-\sqrt{\frac{\pi_{1c}}{2-\pi_{1c}}} + \sqrt{\frac{\pi_{1c}}{2-\pi_{1c}}}\tilde{a}_{2ci}\;,$ 
+where $\tilde{a}_{2ci}$ are random samples from a Gamma distribution with shape parameter $\frac{1}{1-\pi_{2ci}}$ and scale parameter $1-\pi_{2ci}$, and $\pi_{2ci}$ is the probability of selecting unit $i$ in PSU $c$. 
+ The final bootstrap weights are $w^*_{12ci} = w_{12ci}a_{1c}a_{2ci}$.
+
+
+\begin{comment} 
+When Poisson sampling is used as the second stage, the preliminary bootstrap adjustments can be sampled from a Gamma random variable with mean 1 and varaince 
+Rao-Wu-Yue-Beaumont (RWYB) \citep{RWYB} bootstrap is a method for creating bootstrap weights that account for different multistage survey designs. For a two-stage design, the bootstrap weight for a sample unit $(h,c,i)$ is defined as $w_{hci}^{*} = w_{hci}a_{1hc}a_{2hci}$, where $a_{1hc}$ and $a_{2hci}$ are the first and second-stage bootstrap adjustments, respectively. More precisely, 
+    $$a_{1hc} = 1-\sqrt{\frac{m_{1h}}{C_h-1}} + \sqrt{\frac{m_{1h}}{C_h-1}}\frac{C_h}{m_{1h}} m_{1hc}^*\;,$$
+where $m_{1hc}^*$ is the number of times PSU $c$ is chosen out of $m_{1h}$ trials, and $C_h$ is the number of PSUs in stratum $h$. The typical choice is $m_{1h} = C_h-1$, which corresponds to $a_{1hc} = \frac{C_h}{C_h-1}m_{1hc}^*$.
+The second stage bootstrap adjustments are 
+
+    $$a_{2hci} = 1-\sqrt{\frac{1-\Delta_{1hcc}}{1+\Delta_{1hcc}}} + \sqrt{\frac{1-\Delta_{1hcc}}{1+\Delta_{1hcc}}}\tilde{a}_{2hci}\;,$$
+where $\Delta_{1hcc} = (\pi_{1hcc}-\pi_{1hc}\pi_{1hc})/\Delta_{1hcc}$ and $\tilde{a}_{hci} \sim \text{ Gamma }(1, 1-1/w_{hci})$.
+
+    
+With this notation, the first-stage bootstrap weights are $w^*_{1hc} = w_{1hc}a_{1hc}$ and the overall bootstrap weights $w^*_{hci} = w_{hci}a_{1hc}a_{2hc}$. Note that $w_{hci} = w_{1hc}w_{2hci}$ where $w_{1hc}$ is the first-stage weight for PSU $(h,c)$ and $w_{2hci}$ is the second-stage weight for individual $(h,c,i)$. 
+ Once the bootstrap resampling is conducted and the stage one and two weights are calculated, regression is conducted using a survey-weighted GLM with the new, adjusted weights. \\
+\end{comment} 
+
+
+\subsection{Joint confidence bands}\label{subsec:CMA} All resampling techniques produce samples of estimators $\widehat{\beta}_p(s)$, which can be used to estimate the marginal variance ${\rm Var}\{\widehat{\beta}_p(s)\}$ at every $s$ and for every $p$.
+Pointwise $1-\alpha$ level confidence intervals for the functional coefficient can then be obtained using $\widehat{\beta}_p(s)\pm z_{1-\alpha/2}\sqrt{{\rm Var}\{\widehat{\beta}_p(s)\}}$.  Correlation and multiplicity adjusted (CMA) confidence intervals can be obtained using one of the methods described in \cite{fda_book}. Here we provide the summary of an approach based on the assumption of joint normality of the sample $\widehat{\beta}_p^b(s)$ over all $s\in S$, where $b=1,\ldots,B$ indicates the bootstrap sample. The $95$\% CMA confidence intervals are obtained as $\widehat{\beta}_p(s)\pm q_{0.95}\sqrt{{\rm Var}\{\widehat{\beta}_p(s)\}}$, where $q_{0.95}$ is the $0.95$ quantile of the max absolute statistic of a vector with distribution $\mathcal{N}(0,\mathbf{C})$, where $\mathbf{C}$ is the correlation matrix of $\widehat{\beta}_p(s)$ over $s$. See Chapter 2.4.2 in \cite{fda_book} and Section 4 in \cite{cui_fui} for more details. 
+The algorithm for fitting survey FoSR is summarized below. See Web Appendix E for information on computational considerations.
+\begin{algorithm}[!ht]
+\caption{Survey-weighted Functional-on-Scalar Regression (Survey FoSR)}
+\label{alg:survey_fosr}
+\vspace{0.1em}
+\textbf{Estimation:}
+\begin{enumerate}
+    \item Fit a survey-weighted generalized linear model (GLM) at each point 
+    $s_l$, $l = 1, \dots, L$, along the functional domain:
+    \[
+    h\{E_w[Y_i(s_l)]\} = \mathbf{X}_i \boldsymbol{\beta}(s_l),
+    \]
+    and obtain the estimated coefficients $\tilde{\boldsymbol{\beta}}(s_l)$.
+    \item Smooth $\tilde{\boldsymbol{\beta}}(s_l)$ across $s$ to obtain 
+    $\hat{\boldsymbol{\beta}}(s)$.
+\end{enumerate}
+
+\vspace{0.3em}
+\textbf{Inference:}
+\begin{enumerate}
+    \item[3.] For $b = 1, \dots, B$:
+    \begin{enumerate}
+        \item[(a)] If using BRR: obtain a BRR replicate sample and corresponding replicate weights
+        \item[(b)] If using RWYB: obtain RWYB replicate weights.
+        \item[(c)] If using weighted: obtain bootstrap sample by sampling with replacement with probability proportional to inverse survey weight
+        \item[(d)] Refit steps (1)--(2) using the $b$th replicate to obtain 
+        $\hat{\boldsymbol{\beta}}(s_l)_{(b)}$ for $l = 1, \dots, L$.
+    \end{enumerate}
+    \item[4.] For each $l = 1, \dots, L$, estimate 
+    $\mathrm{Var}\{{\boldsymbol{\beta}}(s_l)\}$ 
+    using the sample variance of the $B$ bootstrap estimates.
+\end{enumerate}
+\end{algorithm}
+
+
+\subsection{Software}
+The software to implement our method is provided in the R package \texttt{svyfosr} (\url{https://github.com/jhuwit/svyfosr}). The syntax mirrors that of the \texttt{fastFMM::fui()} function, see Web Appendix E for a description of the code.
+
+\begin{minted}[bgcolor=LightGray, baselinestretch=1.1,fontsize=\small]{R}
+model_fit = svyfosr::svyfui(Y ~ X1 + X2, data = sample_df, 
+                            weights = weight, family = gaussian(),
+                            boot_type = "BRR",num_boots = 100,
+                            parallel = TRUE, n_cores = 6, seed = 2213)
+\end{minted}
+
+\section{Simulations}\label{sec:sim}
+\subsection{Theoretical simulations}\label{subsec:theoretical}
+Our simulation procedure is novel and complex. It combines the functional data generating mechanism from \cite{cui_fui} with functional survey sampling techniques \citep{parker_bayesian_2023,survey_sofr}. Here we provide the intuition behind its structure; in Web Appendix B we provide the code for the simulation, and in Web Appendix C we walk through the procedure step-by-step procedure with code and examples. 
+
+The simulation consists of two steps: (1)  generation of a superpopulation and (2) sampling from that superpopulation. In the superpopulation generation step, data (a covariate and functional outcome) are generated for each individual while accounting for the stratum/PSU nested structure. The functional outcomes are (optionally) correlated within strata and PSUs, a key aspect that distinguishes survey data from independent data. In the sampling step, we select individuals from the superpopulation in an (optionally) informative manner. We then fit models on the sampled dataset, and compare the model estimates to the true data generating mechanism in the superpopulation. 
+
+\subsubsection{Generation of the superpopulation}\label{subsubsec}
+
+We generate a superpopulation of size $N=10^7$, where each individual in the superpopulation belongs to a stratum and PSU. Each individual in the superpopulation is assigned to a stratum, which can be thought of as a geographical area, and a PSU within that stratum, which can be thought of as a county or city. Dirichlet distributions are used to generate the probabilities of assignment to each stratum and each PSU within the stratum. We set $H=30$ strata and for each strata the number of PSUs in the stratum is sampled uniformly between $75$ and $125$. Stratum assignment probabilities are generated from a symmetric Dirichlet distribution with concentration parameter $4$, and PSU assignment probabilities are generated from a symmetric Dirichlet distribution with concentration parameter $10$. Each individual is then assigned a covariate independently sampled from a Normal distribution: $X_i \sim \mathcal{N}(0,2)$ and a baseline linear predictor: 
+$$\eta_i(s) = h\{\mu_i(s)\} = \beta_0(s) + X_i\beta_1(s)\;,$$ where $\beta_0(s)$ is a global intercept function, $\beta_1(s)$ is a slope function. $\beta_0(s) = 0.53 + 0.06\sin(3\pi s) - 0.03\cos(6.5\pi s)$ and $\beta_1(s) = \frac{1}{20}\phi\Big(\frac{s-0.6}{0.0225}\Big)$; $\phi(\cdot)$ is the standard Normal PDF.
+
+Next, we create stratum-specific heterogeneity in the relationship between $X_i$ and the outcome by scaling $\beta_1(s)$ within each stratum, and we induce within-stratum and within-PSU correlations by simulating random functional effects at both the stratum and PSU levels, and adding them to the baseline linear predictor. Both of these steps are optional and create correlation within strata and PSU that often occur in real world survey data. The linear predictor for individual $i$ after this step is: 
+$$\eta_i(s) = \beta_0(s) + X_i\beta_{1(h)}(s) + b_{h(i)}(s) + b_{c(h, i)}(s)\;.$$
+Where $\beta_{1(h)}(s)$ is the stratum-specific slope function, $b_{h(i)}(s)$ is the stratum-specific functional random effect, and $b_{c(h, i)}(s)$ is the PSU-specific functional random effect. 
+
+The stratum-specific slope function is created by scaling the global slope function: $\beta_{1(h)}(s) = \gamma_h \cdot \beta_1(s)$, where $\gamma_h \sim \mathcal{N}(1, \sigma_s^2)$. The stratum and PSU-specific random effects are modeled as smooth functions generated from B-spline bases. The random effect for stratum $h$ is $b_h(s) = \sum_{k=1}^K\xi_{hk}\phi_k(s)$ and the PSU-level random effect for PSU $c$ nested within stratum $h$ is $b_{c(h)}(s) = \sum_{k=1}^K\zeta_{gk}\phi_k(s)$, where $\{\phi_k(s)\}_{k=1}^K$ is a B-spline basis of dimension $K=5$ over $[0,1]$. The $\xi_{hk}$ and $\zeta_{hk}$ are drawn from mean-zero Normal distributions with variances $\sigma^2_h$ and $\sigma^2_h/2$, respectively, such that the stratum-level random effects contribute more variation than the PSU-level random effects. 
+
+
+The functional outcomes for each individual in the superpopulation are generated based on this linear predictor. For Gaussian data, we obtain outcomes by sampling from a Normal distribution with mean $\eta_i(s)$ and standard deviation $\sigma^2$, where $\sigma^2$ is varied to account for different values of the signal to noise ratio. For binary data, outcomes are sampled independently from a Bernoulli distribution with probability $p_i(s) = \frac{e^{\eta_i(s)}}{1+e^{\eta_i(s)}}$. For count data, outcomes are sampled independently from a Poisson distribution with mean $e^{\eta_i(s)}$. Panel A of Figure~\ref{fig:sim_panels} displays the smoothed outcomes for a few strata and PSUs under different simulation settings. Each row corresponds to a different stratum, and each line correspond to the mean outcome for a PSU within the stratum. The left column corresponds to data generated without random effects, while the right column corresponds to generated data that include strata scaling and PSU-specific random effects. As expected, the right column in Panel A exhibits more heterogeneity than the left panel; the right panel represents a more realistic data generating mechanism. Indeed, to get a better idea of the level of heterogeneity exhibited by the real NHANES data, Panel B (Figure~\ref{fig:sim_panels}) displays displays the average PA measurement for the two PSUs (solid lines) for three strata (each strata corresponds to one panel in Panel B). 
+
+
+\subsubsection{Sampling}
+Once the superpopulation is generated, many sampling schemes could be used to obtain a sample from it. Here, we use two stage stratified sampling. At the first stage, we sample PSUs from each stratum, using probability proportional to size without replacement (PPSWOR) \citep{ppswor}. At the second stage, we sample individuals from each PSU using Poisson sampling. 
+More precisely, in stage one, two PSUs are selected from each stratum with the selection probability for each PSU being equal to the ratio of the number of individuals in the PSU to the number of individuals in the stratum. In stage two, individuals are selected from each PSU, in an optionally informative matter. Non-informative sampling is obtained by sampling individuals randomly with the same probability. Informative sampling \citep{parker_bayesian_2023, survey_sofr, informative} is obtained by allowing the selection probability to depend on the mean of their functional outcome: $\pi_i =f( \overline{Y}_i)$. The second-stage selection probabilities are adjusted to obtain the desired amount of individuals from each PSU, and the selection probabilities are stored at each stage. Panel C of Figure~\ref{fig:sim_panels} demonstrates the implications of different sampling schemes and random effects structures. In each plot, the mean functional outcome by tertile of survey weight is shown. Large differences in the outcome by survey weight occur for the informative sampling scenarios (top row), there are no discernible differences under random sampling and no random effects (bottom row, left column), and smaller differences occur with random sampling and strata scaling and noise for random effects (bottom row, right column). For comparison, the real NHANES data is shown in Panel D (Figure~\ref{fig:sim_panels}). While there are no differences in the functional outcome between tertiles 2 and 3, there does appear to be a difference between tertile 1 and tertiles 2 and 3, respectively. 
+\begin{figure}[H]
+    \centering
+    \includegraphics[width=\textwidth]{paper3_chapter/figure/sim_fig_panels.png}
+    \caption{Panel A: smoothed simulated outcomes for three strata (rows) and five PSUs within each stratum (colored lines). Left column: data generated with no random effects. Right column: data generated with strata scaling and random effects. Panel B: smoothed real outcomes for three strata (rows) and the PSUs within each stratum (colored lines) in the NHANES data. Panel C: mean smoothed outcomes by weight tertile for varied informativeness level and sampling schemes in the simulation. Panel D: mean smoothed outcomes by weight tertile in the NHANES data application}
+    \label{fig:sim_panels}
+\end{figure}
+
+\subsubsection{Simulation settings}
+To evaluate our method, we vary (1) distribution of functional responses (a) Gaussian, (b) Bernoulli, (c) Poisson; (2) number of subjects per PSU/strata combination $I_n = \{100, 500\}$; (3) dimension of the functional domain $L\in\{50, 100, 1440\}$; (4) relative importance of random effects \citep{FAMM} SNR$_b \in \{ 0.5, 1, 5\}$ where SNR$_b$ is the standard deviation of the fixed effects functions divided by the standard deviation of the random effects functions and a higher value corresponds to stronger fixed effects; (5) signal-to-noise ratio: SNR$_\epsilon \in \{ 0.5, 1, 5\}$ (Gaussian responses only), standard deviation of the linear predictors divided by standard deviation of the noise; (6)  informativeness level of survey sampling (a) non-informative (random sampling/uniform weights), (b) medium informativeness, (c) high informativeness (see Web Appendix B for more information); (7) strata/PSU random effects: none, correlated stratum/PSU noise only, correlated stratum/PSU noise and stratum slope scaling. 
+
+We implement the survey-weighted GLM for estimation and  three types of bootstrap for inference: BRR, RWYB, and weighted by the original survey weights. We compare results to the unweighted FUI model with a standard bootstrap of subjects for inference. Methods are compared in terms of accuracy of the functional coefficient estimation and confidence interval coverage. Estimation accuracy was measured by the mean integrated squared error (MISE). The Integrated Squared Error (ISE) is defined as: 
+${\rm ISE}(\widehat{\boldsymbol{\beta}}) = \int_0^1\{\boldsymbol{\widehat{\beta}}(s) - \boldsymbol{\beta}(s)\}^2ds\;$, while MISE is the average  ISE over simulations. The true coefficients, $\boldsymbol{\beta}(s)$, are estimated from fitting an unweighted model in the superpopulation. 
+
+
+
+\subsubsection{Quantifying within-strata and PSU correlation}
+
+To quantify the strength of within-strata/PSU correlation, we use multilevel functional principal components analysis (MFPCA) \citep{mfpca, fda_book}. We define level 1 as strata and PSU membership, and level 2 as individuals within each PSU, and then calculate the proportion of variability explained by the level 1 and level 2 variation, respectively. The higher the proportion variability explained by level 1, the higher the within strata/PSU correlation. Our simulation settings ranged from $0.3$\% to $86$\% variation explained by strata and PSU (see Figure S12). The lowest percent variation explained occurred in the setting with no random effects, uniform sampling, $L = 100$, $I_n = 500$, SNR$_\epsilon$ = 5, and Gaussian data. The highest variation explained occurred with strata/PSU noise, unifrm sampling, $L=100$, $I_n=500$, $\text{SNR}_b = 0.5$, and SNR$_\epsilon=5$ with Gaussian data. In general, low variation explained by level 1 occurred in settings with no random effects and uniform sampling. High variation explained by level 1 occurred in settings with high importance of random effects and high signal-to-noise ratios. All code for the simulations is publicly available at \url{https://github.com/jhuwit/survey_FoSR}.
+
+\subsubsection{Theoretical simulation results}\label{subsec:theosim}
+% first discuss sampling schemes
+The bias for Gaussian data under different sampling schemes for the functional coefficient are shown in panel A of Figure~\ref{fig:gaussian}: higher log$_{10}$ MISE corresponds to higher bias. Across all panels, $I_n$ and $L$ are fixed at $100$ and $50$, respectively, and there is both strata scaling and strata/PSU random effects. Each facet is a combination of sampling scheme and relative importance of random effects; within each facet, the x-axis represents the signal to noise ratio. Under uniform sampling, bias is slightly higher for weighted compared to unweighted estimation. For medium informativeness, bias is lower for weighted compared to unweighted estimation, except when $\text{SNR}_b = 5$, i.e. fixed effects dominate random effects (bottom row, middle panel). At high informativeness, the weighted estimate always achieves lower bias than the unweighted estimate, even when fixed effects dominate random effects. The difference between the weighted and unweighted estimate is largest for high informativeness, high signal-to-noise ratio, and high relative importance of random effects. Figure S1 shows the same  information for the functional intercept. Across all scenarios, for the intercept, the weighted estimate has lower bias than the unweighted estimate, likely due to the presence of the random effects.  
+
+Panel B of Figure~\ref{fig:gaussian} shows bias for functional coefficient with Gaussian data under different sample size configurations, holding the signal to noise ratio at $1$ and the relative importance of fixed effects at $0.5$. As we saw previously, for uniform sampling, weighted estimation has similar or higher bias than unweighted estimation; for all other scenarios, weighted estimation has lower bias. As the length of the functional domain increases to $1440$, in the difference between weighted and unweighted estimation shrinks, but remains present, especially for high informativeness sampling. At a given functional domain length, differences between weighted and unweighted are more pronounced for $n=500$ compared to $n=100$. Figure S2 shows the same  information for the functional intercept. Again, across all scenarios, the weighted estimate has lower bias than the unweighted estimate. Figure S7 displays analogous results for the non-Gaussian setting. Patterns mirror those for Gaussian data. 
+
+Table~\ref{tab:pw_cover} displays mean pointwise coverage for the Gaussian data. The baseline setting is Gaussian response, $I_n=100, L=50, \text{SNR}_b=0.5, \text{SNR}_\epsilon = 1$, medium informativeness, and strata scaling with strata/PSU random effects. All other parameters are fixed at their baseline values when another parameter is changed. Under uniform sampling, all methods achieve the nominal ($95$\%) coverage rate. For the covariate ($X$) coefficient in most non-uniform sampling settings, the unweighted method (range: $0.17$-$0.96$) is much lower than the nominal ($95$\%) coverage rate: the exceptions are no random effects (coverage: $0.96$) or dominance of fixed effects over random effects (coverage: $0.94$). The weighted method (range: $0.94$-$0.97$), BRR (range: $0.94$-$0.96$), and RWYB (range: $0.94$-$0.96$)  achieve nominal or close to nominal coverage in all scenarios. Both methods perform slightly worse under no within strata/PSU correlation (coverage = $0.93$ and $0.94$ for BRR and RWYB, respectively). For the intercept, patterns are different. Neither the unweighted (range: $0.09$-$0.40$) nor weighted (range: $0.12$-$0.93$) achieve nominal coverage  \textit{almost any} scenario, even in uniform sampling. The exception is when there are no random effects (weighted coverage: $0.93$).  This range of coverage is likely due to the intercept absorbing the random effects shifts from strata and PSUs and the misspecified GLM that does not estimate these effects.  Future work will focus on a bias correction procedure.
+
+Table~\ref{tab:pw_cover_ng} displays mean pointwise coverage for the non-Gaussian data. The unweighted method fails to achieve the nominal coverage rate in all settings except uniform sampling (coverage: $0.94$ and $0.97$ for Bernoulli and Poisson, respectively). For Bernoulli data, the weighted method does not achieve nominal coverage (range: $0.85$-$0.94$); however, for Poisson data, the weighted method (range: $0.93$-$0.96$) achieves or nearly achieves the nominal coverage in all scenarios. BRR (range: $0.94$-$0.95$) and RWYB (range: $0.94$-$0.96$) perform well in all settings for Poisson data, and slightly worse in all settings for Bernoulli data (BRR range: $0.91$-$0.94$, RWYB range: $0.91$-$0.95$). Additional simulation results are included in Web Appendix D and the full results of the simulations are available online at \url{https://github.com/jhuwit/survey_FoSR/blob/main/results/simulations/all_survey_res.rds}. 
+
+
+\begin{table}[H]
+\renewcommand{\arraystretch}{0.75}
+    \centering
+     \resizebox{\textwidth}{!}{%
+    \begin{tabular}{lllllll}
+\toprule
+\multirow{2}{*}{Model} & \multicolumn{2}{l}{Uniform sampling} &  \multicolumn{2}{l}{Medium informativeness} &  \multicolumn{2}{l}{High informativeness}\\
+ & Intercept & $X$ & Intercept & $X$ & Intercept & $X$\\
+ \midrule 
+Unweighted & \textbf{0.21} & 0.97 &  \textbf{0.21} &  \textbf{0.40} &  \textbf{0.20} &  \textbf{0.22}\\
+Weighted & \textbf{0.26} & 0.95 & \textbf{0.26}  & 0.94 & \textbf{0.26} & 0.94\\
+BRR & 0.94 & 0.95 & 0.94 & 0.95 & 0.94 & 0.95\\
+RWYB & 0.94 & 0.95 & 0.94 & 0.95 & 0.94 & 0.95\\
+\midrule
+\multirow{2}{*}{Model} &   \multicolumn{2}{l}{No random effects} & \multicolumn{2}{l}{Noise only} & \multicolumn{2}{l}{Scaling \& noise}\\
+  & Intercept & $X$ & Intercept & $X$ & Intercept & $X$\\
+\midrule 
+Unweighted & \textbf{0.32} & 0.96 & \textbf{0.17} & \textbf{0.56} & \textbf{0.21} & \textbf{0.40}\\
+Weighted & 0.93 & 0.95 & \textbf{0.26} & 0.95 & \textbf{0.26} & 0.94\\
+BRR & 0.95 & 0.94 & 0.95 & 0.96 & 0.94 & 0.95\\
+RWYB & 0.95 & 0.95 & 0.94 & 0.96 & 0.94 & 0.95\\
+\midrule 
+\multirow{2}{*}{Model}  & \multicolumn{2}{l}{$\text{SNR}_b = 0.5$} & \multicolumn{2}{l}{$\text{SNR}_b=1$} &  \multicolumn{2}{l}{$\text{SNR}_b = 5$}\\
+ & Intercept & $X$ & Intercept & $X$ & Intercept & $X$\\
+ \midrule 
+Unweighted & \textbf{0.21} & \textbf{0.40} & \textbf{0.23} & \textbf{0.34} & \textbf{0.40} & 0.94\\
+Weighted & \textbf{0.26} & 0.94 & \textbf{0.28} & 0.95 & \textbf{0.59} & 0.94\\
+BRR & 0.94 & 0.95 & 0.95 & 0.95 & 0.95 & 0.94\\
+RWYB & 0.94 & 0.95 & 0.94 & 0.95 & 0.95 & 0.95\\
+\midrule 
+\multirow{2}{*}{Model}  & \multicolumn{2}{l}{$\text{SNR}_\epsilon = 0.5$} & \multicolumn{2}{l}{$\text{SNR}_\epsilon=1$} &  \multicolumn{2}{l}{$\text{SNR}_\epsilon = 5$}\\
+ & Intercept & $X$ & Intercept & $X$ & Intercept & $X$\\
+ \midrule 
+Unweighted & \textbf{0.21} & \textbf{0.65} & \textbf{0.21} & \textbf{0.40} & \textbf{0.18} & \textbf{0.33}\\
+Weighted & \textbf{0.33} & 0.94 & \textbf{0.26} & 0.94 & \textbf{0.22} & 0.94\\
+BRR & 0.95 & 0.95 & 0.94 & 0.95 & 0.94 & 0.95\\
+RWYB & 0.95 & 0.96 & 0.94 & 0.95 & 0.94 & 0.95\\
+\midrule
+\multirow{2}{*}{Model} &  \multicolumn{2}{l}{$I_n=100$}& \multicolumn{2}{l}{$I_n=500$} & \multicolumn{2}{l}{}\\
+& Intercept & $X$ & Intercept & $X$ &  & \\
+\midrule 
+Unweighted & \textbf{0.21} & \textbf{0.40} & \textbf{0.09} & \textbf{0.17} &  & \\
+Weighted & \textbf{0.26} & 0.94 & \textbf{0.12} & 0.95 &  & \\
+BRR & 0.94 & 0.95 & 0.94 & 0.95 &  & \\
+RWYB & 0.94 & 0.95 & 0.94 & 0.95 &  & \\
+\midrule 
+\multirow{2}{*}{Model} & \multicolumn{2}{l}{$L=50$}& \multicolumn{2}{l}{$L=100$} & \multicolumn{2}{l}{$L=1440$}\\
+ & Intercept & $X$ & Intercept & $X$ & Intercept & $X$\\
+\midrule 
+Unweighted & \textbf{0.21} & \textbf{0.40} & \textbf{0.20} & \textbf{0.38} &  & \textbf{0.84}\\
+Weighted & \textbf{0.26} & 0.94 & \textbf{0.24} & 0.94 & & 0.97\\
+BRR & 0.94 & 0.95 & 0.94 & 0.95 &  & 0.95\\
+RWYB & 0.94 & 0.95 & 0.94 & 0.95 &  & 0.96\\
+\bottomrule
+\end{tabular}}
+    \caption{Gaussian data: empirical coverage probability of 95\% pointwise coverage bands with each method from 200 simulations. The pointwise band is calculated as mean$\pm$2 SD. The baseline setting is $I_n=100, L=50, \text{SNR}_b=0.5, \text{SNR}_\epsilon = 1$, medium informativeness, and stratum scaling and correlated stratum/PSU noise. All other parameters are fixed at their baseline values when another parameter is changed. Values less than 0.93 are bolded. The intercept coverage for $L=1440$ is not presented, as computing the true intercept for this length of functional domain was computationally infeasible due to memory limitations.}
+    \label{tab:pw_cover}
+\end{table}
+
+
+
+\begin{table}[H]
+\renewcommand{\arraystretch}{0.75}
+    \centering
+     \resizebox{\textwidth}{!}{%
+    \begin{tabular}{lllllll}
+\toprule
+\multirow{2}{*}{Model} & \multicolumn{2}{l}{Uniform sampling} &  \multicolumn{2}{l}{Medium informativeness} &  \multicolumn{2}{l}{High informativeness}\\
+ & Poisson & Bernoulli &  Poisson & Bernoulli & Poisson & Bernoulli\\
+ \midrule 
+Unweighted & \textbf{0.31} & \textbf{0.41} & \textbf{0.11} & \textbf{0.00} & \textbf{0.11} & \textbf{0.00}\\
+Weighted & \textbf{0.38} & \textbf{0.55} & \textbf{0.41} & \textbf{0.58} & \textbf{0.40} & \textbf{0.58}\\
+BRR & 0.93 & 0.94 & 0.93 & 0.93 & 0.93 & 0.94\\
+RWYB & 0.93 & 0.94 & 0.93 & 0.94 & 0.93 & 0.94\\
+\midrule
+\multirow{2}{*}{Model} &   \multicolumn{2}{l}{No random effects} & \multicolumn{2}{l}{Noise only} & \multicolumn{2}{l}{Scaling \& noise}\\
+  & Poisson & Bernoulli &  Poisson & Bernoulli & Poisson & Bernoulli\\
+\midrule 
+Unweighted & \textbf{0.00} & \textbf{0.00} & \textbf{0.16} & \textbf{0.00} & \textbf{0.11} & \textbf{0.00}\\
+Weighted & \textbf{0.91} & \textbf{0.90} & \textbf{0.41} & \textbf{0.60} & \textbf{0.41} & \textbf{0.58}\\
+BRR & 0.95 & 0.95 & 0.93 & 0.94 & 0.93 & 0.93\\
+RWYB & 0.95 & 0.95 & 0.93 & 0.94 & 0.93 & 0.94\\
+\midrule 
+\multirow{2}{*}{Model}  & \multicolumn{2}{l}{$\text{SNR}_b = 0.5$} & \multicolumn{2}{l}{$\text{SNR}_b=1$} &  \multicolumn{2}{l}{$\text{SNR}_b = 5$}\\
+ & Poisson & Bernoulli &  Poisson & Bernoulli & Poisson & Bernoulli\\
+ \midrule 
+Unweighted & \textbf{0.11} & \textbf{0.00} & \textbf{0.00} & \textbf{0.00} & \textbf{0.00} & \textbf{0.00}\\
+Weighted & \textbf{0.41} & \textbf{0.58} & \textbf{0.60} & \textbf{0.76} & \textbf{0.89} & \textbf{0.91}\\
+BRR & 0.93 & 0.93 & 0.93 & 0.94 & 0.94 & 0.96\\
+RWYB & 0.93 & 0.94 & 0.93 & 0.94 & 0.95 & 0.96\\
+\midrule 
+\multirow{2}{*}{Model} &  \multicolumn{2}{l}{$I_n=100$}& \multicolumn{2}{l}{$I_n=500$} & \multicolumn{2}{l}{}\\
+ & Poisson & Bernoulli &  Poisson & Bernoulli &  &\\
+\midrule 
+Unweighted & \textbf{0.11} & \textbf{0.00} & \textbf{0.06} & \textbf{0.00} &  & \\
+Weighted & \textbf{0.41} & \textbf{0.58} & \textbf{0.22} & \textbf{0.32} &  & \\
+BRR & 0.93 & 0.93 & 0.93 & 0.94 &  & \\
+RWYB & 0.93 & 0.94 & 0.93 & 0.94 &  & \\
+\midrule 
+\multirow{2}{*}{Model} & \multicolumn{2}{l}{$L=50$}& \multicolumn{2}{l}{$L=100$} & \multicolumn{2}{l}{}\\
+ & Poisson & Bernoulli &  Poisson & Bernoulli & & \\
+\midrule 
+Unweighted & \textbf{0.11} & \textbf{0.00} & \textbf{0.19} & \textbf{0.02} &  & \\
+Weighted & \textbf{0.41} & \textbf{0.58} & \textbf{0.33} & \textbf{0.47} & & \\
+BRR & 0.93 & 0.93 & 0.93 & 0.94 & & \\
+RWYB & 0.93 & 0.94 & 0.94 & 0.94 & & \\
+
+\bottomrule
+\end{tabular}}
+    \caption{Non-Gaussian data: empirical coverage probability of 95\% pointwise coverage bands for coefficient $X$ with each method from 200 simulations. The pointwise band is calculated as mean$\pm$2 SD. $I_n=100, L=50, \text{SNR}_b=0.5$, medium informativeness, and stratum scaling and correlated stratum/PSU noise. All other parameters are fixed at their baseline values when another parameter is changed. Values less than 0.93 are bolded.}
+    \label{tab:pw_cover_ng}
+\end{table}
+
+
+
+\begin{figure}[ht]
+    \centering
+    \includegraphics[width=\linewidth]{paper3_chapter/figure/mise_gaussian_2panel.png}
+    \caption{Estimation accuracy for the unweighted (yellow) and blue (weighted) estimation procedure from 200 simulations. Panel A: varied signal to noise ratios. Panel B:  varied sample size and length of functional domain. Response is Gaussian and the baseline setting is  $\text{SNR}_b=0.5, \text{SNR}_\epsilon = 1$, $I_n=100$, $L=50$ and stratum scaling and correlated stratum/PSU noise.}
+    \label{fig:gaussian}
+\end{figure}
+
+
+\subsection{Empirical simulation}\label{subsec:empirical}
+The goal of the empirical simulation is to confirm that the method can adjust for informative sampling in the context of estimating the relationship between scalar covariates and a physical activity functional response curve. To create this simulation, we treat the entire NHANES sample data as our population, and subsample from this population informatively. To do so, we first calculate two variables: (1) the individual's original survey weight $w_i$, scaled to have mean $0$ and variance $1$ across the population, which we denote $w_i^{sc}$, and (2) the individual's mean physical activity measured in Monitor Independent Movement Summary (MIMS) units \citep{mims}, also scaled to have mean $0$ and variance $1$, which we denote $m_i^{sc}$. We truncate the weights at $-2$ and $2$ to prevent extreme weight values. Let $\text{logit}(x) = \frac{1}{1+e^{-x}}$ denote the logistic transformation. We consider four sampling scenarios/weighting schemes: (1) Uniform sampling: $\pi_i \propto \frac{1}{n}$ (uniform); (2) sampling probability proportional to the individual's scaled survey weight: $\pi_i \propto \text{logit}(w_i^{sc})$ (NHANES); (3) Sampling probability proportional to the individual's scaled physical activity: $\pi_i \propto \text{logit}(m_i^{sc})$ (MIMS); (4) sampling probability proportional to combination of individual's scaled physical activity and survey weight:  $\pi_i \propto \text{logit}(0.5w_i^{sc} + 0.5m_i^{sc})$ (NHANES\&MIMS).
+
+We scale the $\pi_i$ to ensure the desired amount of individuals selected in the subsample (we chose $n=1000$) and set $w_i = 1/\pi_i$ as the survey weight for each individual in the subsample. The functional response is the mean MIMS profile over the course of the day and the scalar covariate is sex. We fit three models: an unweighted FoSR model with unweighted bootstrap for inference, the survey weighted FoSR model with survey weighted bootstrap for inference, and the survey weighted FoSR model with BRR for inference. We do not use RWYB because we do not have the required selection probabilities at each sampling stage. From each model we obtain a functional coefficient estimate, and for each iteration, we calculate the MISE by comparing the functional coefficient in the subsample to the (unweighted) functional coefficient in the entire population. We also calculate the pointwise and joint coverage, comparing to the functional coefficient in the entire population and repeat the simulation $200$ times. 
+\subsection{Empirical simulation results}
+Figure~\ref{fig:emp_sim} displays the results of the empirical simulation. Panels A, B, C, and D show the pointwise coverage, log MISE, mean pointwise standard error, and joint coverage across all 200 iterations for the three models: unweighted, weighted, and BRR, while the weighting schemes (uniform, NHANES, MIMS, NHANES\&MIMS) are displayed on the x-axis. In the uniform weighting scheme, all methods achieve adequate coverage, and pointwise standard errors are similar across methods. In the NHANES weighting scheme, the unweighted method has lower coverage and higher bias for $\beta_0(s)$, but not for $\beta_1(s)$. In the MIMS weighting scheme, the unweighted method has low coverage and high bias for both $\beta_0(s)$, but not for $\beta_1(s)$, and the weighted method has slightly lower than nominal coverage (pointwise coverage = $0.94$, joint coverage = $0.92$) for $\beta_1(s)$. The  NHANES\&MIMS scenario is a weighted average of the NHANES and MIMS results. Across all weighting schemes, the weighted and BRR methods achieve similar coverage rates, although the pointwise standard error for BRR is typically larger than that of weighted. In this setting, since we do not create or observe high within PSU/strata correlation, the survey weighted method performs relatively well. 
+
+\begin{figure}[ht]
+    \centering
+    \includegraphics[width=\textwidth]{paper3_chapter/figure/empirical_sim_fig.png}
+    \caption{Empirical simulation results. The x-axis shows the four weighting schemes used: uniform weighting, weights based on NHANES weights, weights based on physical activity profiles (MIMS), and weights based on a combination of NHANES weights and MIMS). Panel A: pointwise coverage; Panel B: log MISE; Panel C: mean pointwise standard error; Panel D: joint coverage.}
+    \label{fig:emp_sim}
+\end{figure}
+\section{Application}\label{subsec:application}
+
+We apply the method to the 2011–2014 NHANES accelerometry data. NHANES is a nationally representative survey conducted in two-year cycles. Participants wore wrist accelerometers continuously for up to seven days, with physical activity summarized in one-minute Monitor Independent Movement Summary (MIMS) units \citep{mims}. We analyze adults ($\geq18$ years) with at least three valid days, defined as $\geq1368$ minutes of wear time per day. The final analytic sample includes 8664 individuals.
+
+Covariates include binary indicators for sex (female $= 1$), age groups ($30$-$49$, $50$-$64$, $\geq$65; reference = $18$–$29$), and race/ethnicity (Hispanic, non-Hispanic Black, other; reference = non-Hispanic white). Survey-weighted GLMs were fit at each of the $1440$ time points, followed by coefficient smoothing and two bootstrap methods (weighted and BRR). RWYB was not used because stage-specific sampling probabilities are unavailable. For comparison, we also fit unweighted models with unweighted bootstrap inference.
+
+Figure \ref{fig:application_width} shows estimated functional coefficients and differences in confidence interval widths. The intercept represents mean MIMS per minute for white non-Hispanic males aged $18–29$ ($\approx 14$ MIMS at noon). Females are more active than males throughout the day except $12$–$6$AM. Older adults ($\geq65$) are less active than $18$–$29$-year-olds after $11$AM, while all age groups are more active than $18$-$29$ year-olds in early morning ($6$–$10$AM). Hispanic participants show higher daytime activity than non-Hispanic whites, and non-Hispanic Black participants are more active overnight ($10$PM-$4$AM).
+
+BRR confidence intervals are typically wider than unweighted ones (mean $38$\%, range $-9-130$\%) and generally wider than weighted ones (mean $20$\%, range $-35-112$\%), except for the ``Other'' race category, where weighted CIs are likely narrower due to minimal weight variability. Point estimates and inferences are highly consistent across methods (see Figure S14 and Table S5): agreement in significance exceeds $90$\% for age and sex and $77$\% for race. The small differences likely reflect low within-PSU correlation in NHANES physical activity data, suggesting prior unweighted analyses remain largely valid.
+ 
+
+\begin{figure}[ht]
+    \centering
+    \includegraphics[width=\linewidth]{paper3_chapter/figure/mims_application_width.png}
+    \caption{Difference in confidence interval width between BRR and unweighted (green) and BRR and weighted (orange) for the intercept, age, sex, and race. The estimated functional coefficient (averaged across BRR, weighted, and unweighted methods) is plotted in black. The reference categories are male, age 18-29, and white non-Hispanic race. BRR confidence intervals are nearly always wider than unweighted (green line always above 0) and BRR intervals are usually wider than weighted, although not for other race.}
+    \label{fig:application_width}
+\end{figure}
+
+\section{Discussion}\label{sec:disc} 
+We propose estimation and inference procedures for function on scalar regression under complex survey designs. The method builds on the FUI approach for function on scalar regression by incorporating survey information into the massively univariate models for estimation, and modifying the bootstrap procedure to be survey-aware for inference. Our approach is implemented in the \texttt{svyfosr} R package. Our analytical and empirical simulation studies demonstrate that our approach accurately captures the shape of the functional coefficients and achieves the nominal 95\% coverage rate for both pointwise and joint confidence intervals. In estimation, our method is more accurate than the unweighted model, and for inference, our method outperforms the unweighted bootstrap. 
+
+% talk about how it matters - informativeness and correlation 
+To our knowledge, this is the first method that incorporates complex survey information into function on scalar regression. Our method allows for valid estimation and inference in function on scalar regression with exponential family outcomes for a broad class of potential survey designs: BRR and RWYB options allow the user to specify any type of survey design (stratified, two stage, etc.), potentially with different sampling schemes at each stage. While previous work at the intersection of functional data analysis and survey weighting has focused on functional principal components analysis \citep{survey_fpca}, smoothing parameter selection for penalized spline estimation \citep{splines1, splines2, splines3}, and scalar on function regression \citep{survey_sofr, parker_bayesian_2023}, this is the first method to allow for survey weighting in function on scalar regression. Additionally, we provide R software that is ready to use and uses similar syntax to that of existing FoSR and survey software. 
+
+We also designed a first-of-its kind analytical simulation that (1) generates a superpopulation of functional outcomes that are correlated within strata and PSU and (2) samples informatively from this superpopulation. Our simulations and application to NHANES demonstrate that incorporating survey information is important to provide unbiased estimators and nominal coverage probabilities for the confidence intervals. Our results also clarified that the weighted bootstrap can perform as well as BRR and RWYB methods when there is  low within-strata/PSU correlation, though it can substantially underperform in cases with higher within-strata/PSU correlation (see Figure S13). In NHANES, large differences were not observed between the survey-weighted and unweighted functional coefficients, although confidence bands were wider under the BRR inferential procedure. This difference may be due to the fact that in NHANES, less than 3\% of the variability in MIMS are explained by PSU/strata, i.e. there is low correlation between individuals within the same PSU and stratum. However, when there correlation between PSU and stratum is higher, differences between survey-aware and survey-naive approaches become more pronounced, and it critical to incorporate survey structure into estimation and inference procedures. 
+
+Our method has a few limitations and potential extensions. First, while FUI was originally developed for longitudinal (multilevel) data, our approach currently is only implemented for single-level functional data (one function per participant). Survey-aware estimation and inference in linear mixed effects models is not straightforward, although there have been recent methodological developments in the area \citep{survey_mixed}. A future direction is to extend our FUI-based approach to incorporate multilevel survey data. Second, the strata and PSU level random effects structure in the analytical simulation means that there is no fixed, theoretical population-level intercept function as the target for inference; $\beta_0(s)$ varies across strata and PSU. In our simulation, we estimated the intercept function empirically; however, future work could entail finding a closed-form solution for $\beta_0(s)$ in the superpopulation. Finally, performance of our method was lowest for non-Gaussian outcomes: minimum pointwise coverage for Bernoulli outcomes with BRR and RWYB inference was 0.90, and bias for weighted estimation was not always lower than bias for unweighted estimation in some informative sampling settings. This is likely due to the mean-variance dependence and nonlinearity of the link function for non-Gaussian data in combination with using pointwise estimation. Future extensions on bias correction for non-Gaussian data or joint modeling of the functional outcome may improve performance.
+
+
+\section*{Acknowledgements}
+The authors would like to thank Dr. Erjia Cui for developing the FUI method and the authors of the R packages \texttt{survey} and \texttt{svrep} for creating and maintaining software for survey-aware analyses.   % survey package authors? 
+
+\section*{Supporting Information}
+All appendices can be found at \url{https://arxiv.org/pdf/2511.05487}
+
+Web Appendix A: FUI for non-longitudinal data \\
+Web Appendix B: R code and detailed description of simulation \\
+Web Appendix C: Analytical simulation vignette \\
+Web Appendix D: Supplemental Tables and Figures \\
+Web Appendix E: Computational Considerations and Software Syntax
+\vspace*{-8pt}
