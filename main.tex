@@ -168,6 +168,29 @@ natbib = true
 
 \setcounter{tocdepth}{4}
 \setcounter{secnumdepth}{4}
+
+% Define abstract command to work with plain page style (no thispagestyle{empty})
+
+% Force page numbers on all chapter pages and redefine abstract to not suppress page numbers
+\makeatletter
+\renewcommand\chapter{\if@openright\cleardoublepage\else\clearpage\fi
+                    \thispagestyle{plain}%
+                    \global\@topnum\z@
+                    \@afterindentfalse
+                    \secdef\@chapter\@schapter}
+                    
+% Redefine abstract environment to NOT use \thispagestyle{empty} and keep normal margins
+\renewenvironment{abstract}{%
+  \par
+  \begin{center}%
+    {\bfseries\abstractname}%
+  \end{center}%
+  \small
+}{%
+  \par\addvspace{\baselineskip}
+}
+\makeatother
+
 \begin{document}
 
 \newcommand{\bm}[1]{ \mbox{\boldmath $ #1 $} }
@@ -192,21 +215,28 @@ in conformity with the requirements for the degree of\\
 Doctor of Philosophy }\\
 \vspace*{.75in}
 {\bf Baltimore, Maryland} \\
-{\bf February 2026} \\     % change it accordingly! Put month of submission, not of thesis defense (if different)
-\vspace*{.5in}
+{\bf March 2026} \\     % change it accordingly! Put month of submission, not of thesis defense (if different)
+\vspace*{.25in}
 \begin{small}
-{\bf \copyright{ }2026 by Lily Koffman} \\ % change the year if needed!
+{\bf \copyright{ }2026 Lily Koffman} \\ % change the year if needed!
 {\bf All rights reserved}
 \end{small}
 \end{center}
 \newpage 
 
-% Add acknowledgements
+% Add acknowledgements - START CONTINUOUS PAGE NUMBERING
 \pagestyle{plain}
 \pagenumbering{roman}
 \setcounter{page}{2}
+
+% Add Abstract to TOC
+\addcontentsline{toc}{chapter}{Abstract}
 \include{abstract/abstract}
+
 \include{committee/committee}
+
+% Add Acknowledgments to TOC
+\addcontentsline{toc}{chapter}{Acknowledgments}
 \include{acknowledgments/acknowledgments}
 
 %\cleardoublepage
@@ -222,8 +252,10 @@ Doctor of Philosophy }\\
 \listoftables
 \listoffigures
 
+% RESTART PAGE NUMBERING HERE FOR MAIN CONTENT - ONLY PLACE WHERE NUMBERING RESTARTS
 \cleardoublepage % Needed because our intro chapter doesn't really have anything
 \pagenumbering{arabic}
+\pagestyle{plain}  % Ensure plain page style continues
 
 
 % add your chapters, best way is to have separate TeX files for each chapter
@@ -238,43 +270,38 @@ Doctor of Philosophy }\\
 
 \begin{refsection}[intro_chapter/intro_chapter.bib]
 \include{intro_chapter/intro_chapter}
-\cleardoublepage
-\printbibliography[title={References}]
+\printbibliography[heading=bibintoc, title={References}]
 \end{refsection}
 
 %% If using Overleaf, you'll have to upload the resulting tex file & figures
 %% since Overleaf does not support Rnw files right now (April 13, 2016)
 \begin{refsection}[paper1_chapter/paper1_chapter.bib]
 \include{paper1_chapter/paper1_chapter}
-\cleardoublepage
-\printbibliography[title={References}]
+\printbibliography[heading=bibintoc, title={References}]
 \end{refsection}
 
 \begin{refsection}[paper2_chapter/paper2_chapter.bib]
 \include{paper2_chapter/paper2_chapter}
-\cleardoublepage
-\printbibliography[title={References}]
+\printbibliography[heading=bibintoc, title={References}]
 \end{refsection}
 
 \begin{refsection}[paper3_chapter/paper3_chapter.bib]
 \include{paper3_chapter/paper3_chapter}
-\cleardoublepage
-\printbibliography[title={References}]
+\printbibliography[heading=bibintoc, title={References}]
 \end{refsection}
 
 
 
 \begin{refsection}[conclusion_chapter/conclusion_chapter.bib]
 \include{conclusion_chapter/conclusion_chapter}
-\cleardoublepage
-\printbibliography[title={References}]
+\printbibliography[heading=bibintoc, title={References}]
 \end{refsection}
 
 
 % CV PDF file downloaded from the moderncv template available at Overleaf
 % https://www.overleaf.com/latex/templates/modern-cv-and-cover-letter-2015-version/sttkgjcysttn#.Vw6PFRMrL65
 \addcontentsline{toc}{chapter}{Curriculum Vitae} % CV must be in table of contents
-\includepdf[pages={-}, pagecommand={}]{CV_Koffman.pdf} %continue page numbering through CV
+\includepdf[pages={-}, pagecommand={\thispagestyle{plain}}, scale=0.9, offset=0 40]{CV_Koffman.pdf} %continue page numbering through CV
 
 
 \end{document}
